@@ -1,0 +1,17 @@
+# Dependências e arquivos gerados
+node_modules/
+.pnpm-store/
+dist/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+
+# Dados e configurações locais
+.env
+.env.*
+!.env.example
+
+# Sistema operacional e editor
+.DS_Store
+Thumbs.db
+.vscode/

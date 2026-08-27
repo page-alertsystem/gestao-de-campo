@@ -1,0 +1,9 @@
+{
+  "name": "Gestão de Campo",
+  "short_name": "Campo",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f6f8",
+  "theme_color": "#f57c00",
+  "description": "Gestão de equipes, clientes, estoque e quilometragem."
+}
