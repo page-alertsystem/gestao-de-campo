@@ -34,9 +34,9 @@ const defaultEnabled = new Set([
   'Auditor::Iniciar auditoria de EPI', 'Segurança do Trabalho::Visualizar EPIs',
 ])
 
-export function PermissionMatrix({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+export function PermissionMatrix({ initial, onClose, onSaved }: { initial: string[]; onClose: () => void; onSaved: (permissions: string[]) => void }) {
   const [query, setQuery] = useState('')
-  const [enabled, setEnabled] = useState(defaultEnabled)
+  const [enabled, setEnabled] = useState(() => initial.length ? new Set(initial) : new Set(defaultEnabled))
   const filtered = useMemo(() => groups.map(group => ({
     ...group,
     permissions: group.permissions.filter(permission => `${group.name} ${permission}`.toLowerCase().includes(query.toLowerCase())),
@@ -64,7 +64,7 @@ export function PermissionMatrix({ onClose, onSaved }: { onClose: () => void; on
     <div className="matrix-table-wrap">
       <table className="matrix-table"><thead><tr><th>Funcionalidade</th>{departments.map(department => <th key={department}>{department}</th>)}</tr></thead><tbody>{filtered.map(group => <FragmentRows key={group.name} group={group} departments={departments} enabled={enabled} onToggle={toggle} />)}</tbody></table>
     </div>
-    <div className="matrix-footer"><p><ShieldCheck size={17} />Toda alteração será registrada no histórico de segurança.</p><div><button className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" onClick={onSaved}>Salvar permissões</button></div></div>
+    <div className="matrix-footer"><p><ShieldCheck size={17} />Toda alteração será registrada no histórico de segurança.</p><div><button className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" onClick={() => onSaved(Array.from(enabled))}>Salvar permissões</button></div></div>
   </div>
 }
 

@@ -1,23 +1,22 @@
 import { FormEvent, useState } from 'react'
 import { Boxes, ChevronRight, Info, Plus, Trash2, X } from 'lucide-react'
+import type { Client, Person } from './store'
 
 type ItemRow = { id: string; equipment: string; brand: string; model: string; quantity: string }
 const newRow = (): ItemRow => ({ id: crypto.randomUUID(), equipment: '', brand: '', model: '', quantity: '1' })
 
-export function StockRequestForm({ onClose, onComplete }: { onClose: () => void; onComplete: (code: string) => void }) {
+export function StockRequestForm({ code, people, clients, onClose, onComplete }: { code: string; people: Person[]; clients: Client[]; onClose: () => void; onComplete: (request: { code: string; technician: string; client: string; items: number }) => void }) {
   const [technician, setTechnician] = useState('')
   const [otherTechnician, setOtherTechnician] = useState('')
   const [client, setClient] = useState('')
   const [otherClient, setOtherClient] = useState('')
   const [rows, setRows] = useState<ItemRow[]>([newRow()])
-  const date = new Date()
-  const code = `ALT${String(date.getFullYear()).slice(-2)}${String(date.getMonth() + 1).padStart(2, '0')}0001`
 
   const updateRow = (id: string, field: keyof Omit<ItemRow, 'id'>, value: string) => setRows(current => current.map(row => row.id === id ? { ...row, [field]: value } : row))
   const removeRow = (id: string) => setRows(current => current.length === 1 ? current : current.filter(row => row.id !== id))
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    onComplete(code)
+    onComplete({ code, technician: technician === 'Outros' ? otherTechnician : technician, client: client === 'Outros' ? otherClient : client, items: rows.length })
   }
 
   return <div className="full-screen-layer request-layer">
@@ -28,9 +27,9 @@ export function StockRequestForm({ onClose, onComplete }: { onClose: () => void;
           <div className="form-section-title"><span><Boxes size={20} /></span><div><h3>Responsáveis e retirada</h3><p>Informe quem fará a retirada e onde os materiais serão utilizados.</p></div></div>
           <div className="large-form-grid">
             <label>Data prevista para retirada<input type="date" min={new Date().toISOString().slice(0, 10)} required /></label>
-            <label>Técnico responsável<select value={technician} onChange={event => setTechnician(event.target.value)} required><option value="">Selecione</option><option>Ana Martins</option><option>Bruno Lima</option><option>Marcos Silva</option><option value="Outros">Outros</option></select></label>
+            <label>Técnico responsável<select value={technician} onChange={event => setTechnician(event.target.value)} required><option value="">Selecione</option>{people.filter(person => person.active).map(person => <option key={person.id}>{person.name}</option>)}<option value="Outros">Outros</option></select></label>
             {technician === 'Outros' && <label>Nome do técnico<input value={otherTechnician} onChange={event => setOtherTechnician(event.target.value)} placeholder="Nome completo" required /></label>}
-            <label>Cliente<select value={client} onChange={event => setClient(event.target.value)} required><option value="">Selecione</option><option>Cliente Alpha</option><option>Hospital Central</option><option value="Outros">Outros</option></select></label>
+            <label>Cliente<select value={client} onChange={event => setClient(event.target.value)} required><option value="">Selecione</option>{clients.filter(item => item.active).map(item => <option key={item.id}>{item.name}</option>)}<option value="Outros">Outros</option></select></label>
             {client === 'Outros' && <label>Nome do cliente<input value={otherClient} onChange={event => setOtherClient(event.target.value)} placeholder="Informe o cliente" required /></label>}
             <label className="full">Observação geral (opcional)<textarea placeholder="Informações importantes para a separação ou retirada." /></label>
           </div>
