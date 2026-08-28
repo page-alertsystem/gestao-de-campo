@@ -1,186 +1,302 @@
-import { FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react'
-import type { Cliente, Database, Link, Page, RegistroKm, Tecnico, Trajeto } from './types'
-import { id, readDatabase, writeDatabase } from './storage'
+import { FormEvent, type ComponentType, type ReactNode, useEffect, useMemo, useState } from 'react'
+import {
+  AlertTriangle, Bell, Boxes, CalendarClock, CarFront, CheckCircle2, ChevronRight, ClipboardCheck,
+  Download, FileBarChart, Home, LogOut, MapPin, Menu, PackageCheck, Plus, Route,
+  Search, Settings, ShieldCheck, Signal, SignalZero, Users, Warehouse, X,
+} from 'lucide-react'
+import { PermissionMatrix } from './PermissionMatrix'
+import { KmForm } from './KmForm'
+import { StockRequestForm } from './StockRequestForm'
 
-const pages: { id: Page; label: string; icon: string }[] = [
-  { id: 'inicio', label: 'Início', icon: '⌂' }, { id: 'clientes', label: 'Clientes', icon: '◫' },
-  { id: 'trajetos', label: 'Trajetos', icon: '↗' }, { id: 'estoque', label: 'Estoque', icon: '▣' },
-  { id: 'km', label: 'Quilometragem', icon: '▤' }, { id: 'relatorios', label: 'Relatórios', icon: '▥' },
+type Page = 'inicio' | 'trajeto' | 'estoque' | 'relatorios' | 'configuracoes'
+type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
+
+const nav: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
+  { id: 'inicio', label: 'Início', icon: Home },
+  { id: 'trajeto', label: 'Operação', icon: Route },
+  { id: 'estoque', label: 'Estoque', icon: Boxes },
+  { id: 'relatorios', label: 'Relatórios', icon: FileBarChart },
+  { id: 'configuracoes', label: 'Configurações', icon: Settings },
 ]
 
-const today = () => new Date().toISOString().slice(0, 10)
-const formatDate = (date: string) => date ? new Intl.DateTimeFormat('pt-BR').format(new Date(`${date}T12:00:00`)) : '—'
-const download = (name: string, rows: string[][]) => {
-  const csv = '\ufeff' + rows.map(row => row.map(value => `"${value.replaceAll('"', '""')}"`).join(';')).join('\n')
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-  link.download = name
-  link.click()
-  URL.revokeObjectURL(link.href)
-}
+const actions: { label: ActionName; detail: string; icon: ComponentType<{ size?: number }> }[] = [
+  { label: 'Início do deslocamento', detail: 'Registre a saída para uma operação', icon: Route },
+  { label: 'Encontro', detail: 'Informe quem encontrou no trajeto', icon: Users },
+  { label: 'Desencontro', detail: 'Registre a separação da equipe', icon: Users },
+  { label: 'Chegada em casa', detail: 'Finalize a movimentação do dia', icon: Home },
+  { label: 'Esqueci meu ponto', detail: 'Avise o RH sobre um ponto não registrado', icon: CalendarClock },
+]
+
+const todayInput = () => new Date().toISOString().slice(0, 10)
+const nowInput = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
 export default function App() {
-  const [db, setDb] = useState<Database>(readDatabase)
+  const [logged, setLogged] = useState(() => sessionStorage.getItem('gio-preview-session') === '1')
   const [page, setPage] = useState<Page>('inicio')
-  const [clientMode, setClientMode] = useState<'criar' | 'consultar'>('criar')
-  const [logged, setLogged] = useState(() => sessionStorage.getItem('gestao-campo-logado') === '1')
-  const [notice, setNotice] = useState('')
+  const [online, setOnline] = useState(navigator.onLine)
+  const [drawer, setDrawer] = useState(false)
+  const [activeAction, setActiveAction] = useState<ActionName | null>(null)
+  const [permissionsOpen, setPermissionsOpen] = useState(false)
+  const [kmOpen, setKmOpen] = useState(false)
+  const [requestOpen, setRequestOpen] = useState(false)
+  const [toast, setToast] = useState('')
+  const [pendingSync, setPendingSync] = useState(0)
+  const [activities, setActivities] = useState([
+    { title: 'Início do deslocamento', detail: 'Cliente Alpha · 07:18', tone: 'success' },
+    { title: 'Encontro', detail: 'Marcos e Ana · 08:02', tone: 'neutral' },
+  ])
 
-  useEffect(() => writeDatabase(db), [db])
-  const save = (next: Database, message = 'Dados salvos com sucesso.') => { setDb(next); setNotice(message); window.setTimeout(() => setNotice(''), 3500) }
+  useEffect(() => {
+    const connected = () => setOnline(true)
+    const disconnected = () => setOnline(false)
+    window.addEventListener('online', connected)
+    window.addEventListener('offline', disconnected)
+    return () => {
+      window.removeEventListener('online', connected)
+      window.removeEventListener('offline', disconnected)
+    }
+  }, [])
 
-  if (!logged) return <Login onLogin={() => { sessionStorage.setItem('gestao-campo-logado', '1'); setLogged(true) }} />
+  const showToast = (message: string) => {
+    setToast(message)
+    window.setTimeout(() => setToast(''), 3600)
+  }
 
-  return <div className="shell">
-    <header className="topbar"><div className="brand">Gestão de <span>Campo</span></div><div className="user">Operador <button className="link-button" onClick={() => { sessionStorage.removeItem('gestao-campo-logado'); setLogged(false) }}>Sair</button></div></header>
-    <aside className="sidebar"><nav>{pages.map(item => item.id === 'clientes' ? <div key={item.id}><button className={page === item.id ? 'nav active' : 'nav'} onClick={() => setPage('clientes')}><span>{item.icon}</span>{item.label}</button>{page === 'clientes' && <div className="client-subnav"><button className={clientMode === 'criar' ? 'subnav active' : 'subnav'} onClick={() => setClientMode('criar')}>Criar cliente</button><button className={clientMode === 'consultar' ? 'subnav active' : 'subnav'} onClick={() => setClientMode('consultar')}>Consultar clientes</button></div>}</div> : <button key={item.id} className={page === item.id ? 'nav active' : 'nav'} onClick={() => setPage(item.id)}><span>{item.icon}</span>{item.label}</button>)}</nav></aside>
-    <main className="content">
-      {notice && <div className="notice" role="status">✓ {notice}</div>}
-      {page === 'inicio' && <Dashboard db={db} onNavigate={setPage} />}
-      {page === 'clientes' && <Clientes db={db} save={save} mode={clientMode} setMode={setClientMode} />}
-      {page === 'trajetos' && <Trajetos db={db} save={save} />}
-      {page === 'estoque' && <Estoque db={db} save={save} />}
-      {page === 'km' && <Km db={db} save={save} />}
-      {page === 'relatorios' && <Relatorios db={db} />}
-    </main>
+  const navigate = (next: Page) => {
+    setPage(next)
+    setDrawer(false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const signOut = () => {
+    sessionStorage.removeItem('gio-preview-session')
+    setLogged(false)
+  }
+
+  const register = (action: ActionName, summary: string) => {
+    setActivities(current => [{ title: action, detail: summary, tone: action === 'Esqueci meu ponto' ? 'warning' : 'success' }, ...current])
+    if (!online) setPendingSync(current => current + 1)
+    setActiveAction(null)
+    showToast(online ? 'Registro realizado com sucesso.' : 'Registro salvo neste celular e aguardando internet.')
+  }
+
+  if (!logged) {
+    return <Login onLogin={() => {
+      sessionStorage.setItem('gio-preview-session', '1')
+      setLogged(true)
+    }} />
+  }
+
+  const title = nav.find(item => item.id === page)?.label ?? 'Início'
+
+  return <div className="app-shell">
+    <aside className={drawer ? 'sidebar open' : 'sidebar'}>
+      <div className="brand-block">
+        <div className="brand-mark">G</div>
+        <div><b>GIO</b><span>Gestão Integrada<br />de Operações</span></div>
+      </div>
+      <nav className="main-nav" aria-label="Navegação principal">
+        {nav.map(item => {
+          const Icon = item.icon
+          return <button key={item.id} className={page === item.id ? 'nav-item active' : 'nav-item'} onClick={() => navigate(item.id)}>
+            <Icon size={20} /><span>{item.label}</span>
+          </button>
+        })}
+      </nav>
+      <div className="sidebar-foot">
+        <div className="profile-avatar">GA</div>
+        <div className="profile-copy"><b>Gabriel Alcantara</b><span>Administrador</span></div>
+        <button className="icon-button dark" onClick={signOut} aria-label="Sair"><LogOut size={18} /></button>
+      </div>
+    </aside>
+
+    {drawer && <button className="drawer-backdrop" onClick={() => setDrawer(false)} aria-label="Fechar menu" />}
+
+    <div className="workspace">
+      <header className="topbar">
+        <div className="topbar-left">
+          <button className="icon-button menu-button" onClick={() => setDrawer(true)} aria-label="Abrir menu"><Menu size={22} /></button>
+          <div><span className="breadcrumb">GIO</span><h1>{title}</h1></div>
+        </div>
+        <div className="topbar-actions">
+          <span className={online ? 'connection online' : 'connection offline'}>
+            {online ? <Signal size={15} /> : <SignalZero size={15} />}
+            {online ? 'Online' : 'Sem internet'}
+          </span>
+          <button className="notification-button" aria-label="Notificações"><Bell size={20} /><span>4</span></button>
+          <div className="top-avatar">GA</div>
+        </div>
+      </header>
+
+      {!online && <div className="offline-banner"><SignalZero size={18} /><span>Você está sem internet. Continue trabalhando: os registros serão enviados automaticamente quando a conexão voltar.</span></div>}
+      {pendingSync > 0 && <div className="sync-banner"><Signal size={18} /><span>{pendingSync} {pendingSync === 1 ? 'registro aguardando' : 'registros aguardando'} sincronização.</span></div>}
+
+      <main className="page-content">
+        {toast && <div className="toast" role="status"><CheckCircle2 size={19} />{toast}</div>}
+        {page === 'inicio' && <Dashboard activities={activities} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} onRequest={() => setRequestOpen(true)} />}
+        {page === 'trajeto' && <OperationPage onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
+        {page === 'estoque' && <StockPage onRequest={() => setRequestOpen(true)} />}
+        {page === 'relatorios' && <ReportsPage />}
+        {page === 'configuracoes' && <SettingsPage onOpenPermissions={() => setPermissionsOpen(true)} />}
+      </main>
+
+      <nav className="mobile-nav" aria-label="Navegação móvel">
+        {nav.map(item => {
+          const Icon = item.icon
+          return <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label === 'Configurações' ? 'Mais' : item.label}</span></button>
+        })}
+      </nav>
+    </div>
+
+    {activeAction && <QuickRegister action={activeAction} online={online} onClose={() => setActiveAction(null)} onSave={register} />}
+    {permissionsOpen && <div className="full-screen-layer"><PermissionMatrix onClose={() => setPermissionsOpen(false)} onSaved={() => { setPermissionsOpen(false); showToast('Permissões atualizadas com sucesso.') }} /></div>}
+    {kmOpen && <KmForm onClose={() => setKmOpen(false)} onComplete={() => { setKmOpen(false); showToast('Relatório de KM registrado com sucesso.') }} />}
+    {requestOpen && <StockRequestForm onClose={() => setRequestOpen(false)} onComplete={code => { setRequestOpen(false); showToast(`Solicitação ${code} criada com sucesso.`) }} />}
   </div>
 }
 
 function Login({ onLogin }: { onLogin: () => void }) {
-  const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); onLogin() }
-  return <main className="login"><form className="login-card" onSubmit={submit}><div className="logo">Gestão de <span>Campo</span></div><h1>Bem-vindo</h1><p>Entre para acessar a operação.</p><label>Usuário<input required autoComplete="username" placeholder="Seu usuário" /></label><label>Senha<input required type="password" autoComplete="current-password" placeholder="Sua senha" /></label><button className="primary" type="submit">Entrar</button><small>Autenticação provisória — conecte o Supabase antes da publicação.</small></form></main>
-}
-
-function Dashboard({ db, onNavigate }: { db: Database; onNavigate: (page: Page) => void }) {
-  const activeItems = db.tecnicos.flatMap(t => t.itens).filter(i => i.status === 'Ativo').length
-  const todayTrajetos = db.trajetos.filter(t => t.data === today()).length
-  return <><PageHeader title="Visão geral" subtitle="Acompanhe a operação de campo." /><section className="stats"><Stat label="Clientes" value={db.clientes.length} icon="◫" /><Stat label="Técnicos" value={db.tecnicos.length} icon="♙" /><Stat label="Registros hoje" value={todayTrajetos} icon="↗" /><Stat label="Itens em campo" value={activeItems} icon="▣" /></section><section className="two-columns"><section className="card"><h2>Atalhos</h2><div className="quick-actions"><button onClick={() => onNavigate('trajetos')}>Registrar trajeto <span>→</span></button><button onClick={() => onNavigate('km')}>Registrar KM <span>→</span></button><button onClick={() => onNavigate('clientes')}>Novo cliente <span>→</span></button></div></section><section className="card"><h2>Últimas movimentações</h2>{db.trajetos.slice(-4).reverse().length ? <ul className="activity">{db.trajetos.slice(-4).reverse().map(t => <li key={t.id}><b>{t.tecnico || 'Técnico não informado'}</b><span>{t.acao} · {formatDate(t.data)}</span></li>)}</ul> : <Empty text="Ainda não há movimentações registradas." />}</section></section></>
-}
-function Stat({ label, value, icon }: { label: string; value: number; icon: string }) { return <div className="stat"><span>{icon}</span><div><b>{value}</b><small>{label}</small></div></div> }
-function PageHeader({ title, subtitle, action }: { title: string; subtitle: string; action?: ReactNode }) { return <div className="page-header"><div><h1>{title}</h1><p>{subtitle}</p></div>{action}</div> }
-function Empty({ text }: { text: string }) { return <p className="empty">{text}</p> }
-
-function Clientes({ db, save, mode, setMode }: { db: Database; save: (db: Database, message?: string) => void; mode: 'criar' | 'consultar'; setMode: (mode: 'criar' | 'consultar') => void }) {
-  const [name, setName] = useState(''); const [cidade, setCidade] = useState(''); const [estado, setEstado] = useState(''); const [latitude, setLatitude] = useState(''); const [longitude, setLongitude] = useState(''); const [query, setQuery] = useState(''); const [createQuery, setCreateQuery] = useState(''); const [openClientId, setOpenClientId] = useState<string | null>(null); const [nearby, setNearby] = useState<{ latitude: number; longitude: number } | null>(null); const [manageList, setManageList] = useState(false); const [manageClientId, setManageClientId] = useState<string | null>(null)
-  const filtered = useMemo(() => db.clientes.filter(c => [c.nome, c.endereco, ...c.centralizadores.map(q => `${q.nome} ${q.localizacao}`)].join(' ').toLowerCase().includes(query.toLowerCase())), [db.clientes, query])
-  const suggestions = useMemo(() => filtered.slice(0, 8).flatMap(c => [c.nome, c.endereco, ...c.centralizadores.map(q => q.nome)]).filter(Boolean), [filtered])
-  const distance = (client: Cliente) => { if (!nearby || !client.latitude || !client.longitude) return null; const rad = (value: number) => value * Math.PI / 180; const lat1 = rad(nearby.latitude), lat2 = rad(Number(client.latitude)), deltaLat = lat2 - lat1, deltaLon = rad(Number(client.longitude)) - rad(nearby.longitude); const a = Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2; return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) }
-  const visibleClients = useMemo(() => [...filtered].sort((a, b) => (distance(a) ?? Number.POSITIVE_INFINITY) - (distance(b) ?? Number.POSITIVE_INFINITY)), [filtered, nearby])
-  const createFiltered = useMemo(() => db.clientes.filter(c => `${c.nome} ${c.cidade || ''} ${c.estado || ''}`.toLowerCase().includes(createQuery.toLowerCase())), [db.clientes, createQuery])
-  const submit = (event: FormEvent) => { event.preventDefault(); if (!name.trim()) return; const client: Cliente = { id: id(), nome: name.trim(), cidade: cidade.trim(), estado: estado.trim(), endereco: '', latitude: latitude.trim(), longitude: longitude.trim(), centralizadores: [] }; save({ ...db, clientes: [...db.clientes, client] }, 'Cliente cadastrado.'); setName(''); setCidade(''); setEstado(''); setLatitude(''); setLongitude('') }
-  const findNearby = () => navigator.geolocation?.getCurrentPosition(position => setNearby({ latitude: position.coords.latitude, longitude: position.coords.longitude }), () => alert('Não foi possível acessar sua localização.'))
-  const openClient = db.clientes.find(client => client.id === openClientId)
-  const manageClient = db.clientes.find(client => client.id === manageClientId)
-  if (mode === 'criar' && manageClient) return <ManageClientHome client={manageClient} db={db} save={save} onBack={() => setManageClientId(null)} />
-  if (mode === 'criar' && manageList) return <ManageCentralizers db={db} save={save} onBack={() => setManageList(false)} onOpen={id => setManageClientId(id)} />
-  if (openClient) return <ConsultClientDetails client={openClient} onBack={() => setOpenClientId(null)} />
-  return <><PageHeader title="Clientes" subtitle={mode === 'criar' ? 'Cadastre um cliente ou selecione um existente para gerenciar seus quadros.' : 'Consulta somente leitura: encontre o cliente e abra o mapa técnico.'} action={mode === 'criar' ? <button onClick={() => setManageList(true)}>Gerenciar centralizadores</button> : undefined} />{mode === 'criar' ? <><section className="card form-card"><h2>Novo cliente</h2><form className="form-grid" onSubmit={submit}><label>Nome do cliente<input value={name} onChange={e => setName(e.target.value)} required /></label><label>Cidade<input value={cidade} onChange={e => setCidade(e.target.value)} /></label><label>Estado<input value={estado} onChange={e => setEstado(e.target.value)} placeholder="Ex.: SP" /></label><label>Latitude (opcional)<input value={latitude} onChange={e => setLatitude(e.target.value)} placeholder="-23.550520" /></label><label>Longitude (opcional)<input value={longitude} onChange={e => setLongitude(e.target.value)} placeholder="-46.633308" /></label><button className="primary">Adicionar cliente</button></form></section><section className="card"><div className="card-heading"><h2>Clientes cadastrados</h2><input className="search" value={createQuery} onChange={event => setCreateQuery(event.target.value)} placeholder="Pesquisar cliente, cidade ou estado" /></div>{createFiltered.length ? <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Cidade</th><th>Estado</th><th>Quadros</th><th></th></tr></thead><tbody>{createFiltered.map(client => <tr key={client.id}><td>{client.nome}</td><td>{client.cidade || '—'}</td><td>{client.estado || '—'}</td><td>{client.centralizadores.length}</td><td><button onClick={() => setManageClientId(client.id)}>Abrir e gerenciar</button></td></tr>)}</tbody></table></div> : <Empty text="Nenhum cliente encontrado." />}</section></> : <section className="card"><div className="card-heading"><h2>Clientes cadastrados</h2><div><button onClick={findNearby}>{nearby ? 'Ordenado por proximidade' : 'Encontrar próximos a mim'}</button> <input className="search" list="client-suggestions" value={query} onChange={e => setQuery(e.target.value)} placeholder="Pesquise por cliente, endereço ou quadro" /><datalist id="client-suggestions">{suggestions.map((value, index) => <option value={value} key={`${value}-${index}`} />)}</datalist></div></div>{visibleClients.length ? <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Endereço</th><th>Quadros</th><th>Coordenadas</th>{nearby && <th>Distância</th>}<th></th></tr></thead><tbody>{visibleClients.map(client => <tr key={client.id}><td>{client.nome}</td><td>{client.endereco || '—'}</td><td>{client.centralizadores.length}</td><td>{client.latitude && client.longitude ? `${client.latitude}, ${client.longitude}` : '—'}</td>{nearby && <td>{distance(client) === null ? 'Sem coordenadas' : `${distance(client)!.toFixed(1)} km`}</td>}<td><button onClick={() => setOpenClientId(client.id)}>Abrir consulta</button></td></tr>)}</tbody></table></div> : <Empty text="Nenhum cliente encontrado." />}</section>}</>
-}
-
-function ClientDetails({ client, db, save, onBack }: { client: Cliente; db: Database; save: (db: Database, message?: string) => void; onBack: () => void }) {
-  const [central, setCentral] = useState({ nome: '', tipo: 'Quadro' as const, localizacao: '' })
-  const [equipment, setEquipment] = useState({ centralId: '', nome: '', tipo: 'Switch' as const, ips: '', localizacao: '', status: 'Ativo' as const })
-  const [link, setLink] = useState<Omit<Link, 'id'> & { centralId: string; direcao: 'origem' | 'destino' }>({ centralId: '', direcao: 'origem', ponto: '', meio: 'Antena', antenaTipo: 'AP', antenaModelo: '', antenaIp: '', fibraTipo: 'Monomodo', vias: '', caboBlindagem: 'UTP', caboCategoria: 'Cat6' })
-  const [endpoint, setEndpoint] = useState({ switchId: '', nome: '', porta: '', ip: '' })
-  const update = (next: Cliente, message: string) => save({ ...db, clientes: db.clientes.map(c => c.id === client.id ? next : c) }, message)
-  const addCentral = (event: FormEvent) => { event.preventDefault(); if (!central.nome.trim()) return; update({ ...client, centralizadores: [...client.centralizadores, { id: id(), ...central, equipamentos: [], destinos: [] }] }, 'Centralizador adicionado.'); setCentral({ nome: '', tipo: 'Quadro', localizacao: '' }) }
-  const addEquipment = (event: FormEvent) => { event.preventDefault(); if (!equipment.centralId || !equipment.nome.trim()) return; const { centralId, ...item } = equipment; update({ ...client, centralizadores: client.centralizadores.map(c => c.id === centralId ? { ...c, equipamentos: [...c.equipamentos, { id: id(), ...item, dispositivos: item.tipo === 'Switch' ? [] : undefined }] } : c) }, 'Equipamento adicionado.'); setEquipment({ ...equipment, nome: '', ips: '', localizacao: '' }) }
-  const addLink = (event: FormEvent) => { event.preventDefault(); if (!link.centralId || !link.ponto.trim()) return; const { centralId, direcao, ...details } = link; const item = { id: id(), ...details }; update({ ...client, centralizadores: client.centralizadores.map(c => c.id === centralId ? (direcao === 'origem' ? { ...c, origem: item } : { ...c, destinos: [...(c.destinos || []), item] }) : c) }, direcao === 'origem' ? 'Origem do link registrada.' : 'Destino do link registrado.'); setLink({ ...link, ponto: '' }) }
-  const switches = client.centralizadores.flatMap(c => c.equipamentos.filter(e => e.tipo === 'Switch').map(e => ({ ...e, central: c.nome, centralId: c.id })))
-  const addEndpoint = (event: FormEvent) => { event.preventDefault(); if (!endpoint.switchId || !endpoint.nome.trim() || !endpoint.ip.trim()) return; const [centralId, equipmentId] = endpoint.switchId.split(':'); update({ ...client, centralizadores: client.centralizadores.map(c => c.id === centralId ? { ...c, equipamentos: c.equipamentos.map(e => e.id === equipmentId ? { ...e, dispositivos: [...(e.dispositivos || []), { id: id(), nome: endpoint.nome, porta: endpoint.porta, ip: endpoint.ip }] } : e) } : c) }, 'Dispositivo mapeado no switch.'); setEndpoint({ switchId: endpoint.switchId, nome: '', porta: '', ip: '' }) }
-  const linkText = (item: Link) => item.meio === 'Antena' ? `Antena ${item.antenaTipo} · ${item.antenaModelo || 'modelo não informado'} · ${item.antenaIp || 'IP não informado'}` : item.meio === 'Fibra' ? `Fibra ${item.fibraTipo} · ${item.vias || 'vias não informadas'}` : `Cabo ${item.caboBlindagem} · ${item.caboCategoria}`
-  return <><PageHeader title={client.nome} subtitle={client.endereco || 'Endereço não informado'} action={<button onClick={onBack}>← Voltar</button>} /><section className="card"><h2>Novo local técnico</h2><form className="form-grid" onSubmit={addCentral}><label>Nome / identificação<input value={central.nome} onChange={e => setCentral({ ...central, nome: e.target.value })} placeholder="Ex.: Rack CPD" required /></label><label>Tipo<select value={central.tipo} onChange={e => setCentral({ ...central, tipo: e.target.value as typeof central.tipo })}><option>Quadro</option><option>Rack</option><option>Outro</option></select></label><label>Localização física<input value={central.localizacao} onChange={e => setCentral({ ...central, localizacao: e.target.value })} placeholder="Ex.: Sala de TI, térreo" required /></label><button className="primary">Adicionar local</button></form></section><section className="two-columns"><section className="card"><h2>Link de conexão</h2><form className="form-grid" onSubmit={addLink}><label>Centralizador<select value={link.centralId} onChange={e => setLink({ ...link, centralId: e.target.value })} required><option value="">Selecione</option>{client.centralizadores.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></label><label>Direção<select value={link.direcao} onChange={e => setLink({ ...link, direcao: e.target.value as 'origem' | 'destino' })}><option value="origem">Origem (única)</option><option value="destino">Destino / cascata</option></select></label><label>{link.direcao === 'origem' ? 'Vem de' : 'Vai para'}<input value={link.ponto} onChange={e => setLink({ ...link, ponto: e.target.value })} required /></label><label>Meio<select value={link.meio} onChange={e => setLink({ ...link, meio: e.target.value as Link['meio'] })}><option>Antena</option><option>Fibra</option><option>Cabo de rede</option></select></label>{link.meio === 'Antena' && <><label>AP ou ST<select value={link.antenaTipo} onChange={e => setLink({ ...link, antenaTipo: e.target.value as 'AP' | 'ST' })}><option>AP</option><option>ST</option></select></label><label>Modelo<input value={link.antenaModelo} onChange={e => setLink({ ...link, antenaModelo: e.target.value })} /></label><label>IP da antena<input value={link.antenaIp} onChange={e => setLink({ ...link, antenaIp: e.target.value })} /></label></>}{link.meio === 'Fibra' && <><label>Tipo<select value={link.fibraTipo} onChange={e => setLink({ ...link, fibraTipo: e.target.value as 'Monomodo' | 'Multimodo' })}><option>Monomodo</option><option>Multimodo</option></select></label><label>Quantidade de vias<input value={link.vias} onChange={e => setLink({ ...link, vias: e.target.value })} placeholder="Ex.: 2 vias" /></label></>}{link.meio === 'Cabo de rede' && <><label>Blindagem<select value={link.caboBlindagem} onChange={e => setLink({ ...link, caboBlindagem: e.target.value as 'FTP' | 'UTP' })}><option>UTP</option><option>FTP</option></select></label><label>Categoria<select value={link.caboCategoria} onChange={e => setLink({ ...link, caboCategoria: e.target.value as 'Cat5e' | 'Cat6' })}><option>Cat5e</option><option>Cat6</option></select></label></>}<button className="primary">Registrar link</button></form></section><section className="card"><h2>Equipamento do local</h2><form className="form-grid" onSubmit={addEquipment}><label>Centralizador<select value={equipment.centralId} onChange={e => setEquipment({ ...equipment, centralId: e.target.value })} required><option value="">Selecione</option>{client.centralizadores.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></label><label>Tipo<select value={equipment.tipo} onChange={e => setEquipment({ ...equipment, tipo: e.target.value as typeof equipment.tipo })}><option>Nobreak</option><option>Bateria</option><option>Switch</option><option>Outro</option></select></label><label>Nome/modelo<input value={equipment.nome} onChange={e => setEquipment({ ...equipment, nome: e.target.value })} required /></label><label>IP(s)<input value={equipment.ips} onChange={e => setEquipment({ ...equipment, ips: e.target.value })} /></label><label>Posição no local<input value={equipment.localizacao} onChange={e => setEquipment({ ...equipment, localizacao: e.target.value })} /></label><button className="primary">Adicionar equipamento</button></form></section></section>{switches.length > 0 && <section className="card"><h2>Mapear dispositivo ligado ao switch</h2><form className="form-grid" onSubmit={addEndpoint}><label>Switch<select value={endpoint.switchId} onChange={e => setEndpoint({ ...endpoint, switchId: e.target.value })} required><option value="">Selecione</option>{switches.map(s => <option key={s.id} value={`${s.centralId}:${s.id}`}>{s.central} — {s.nome}</option>)}</select></label><label>Dispositivo<input value={endpoint.nome} onChange={e => setEndpoint({ ...endpoint, nome: e.target.value })} required /></label><label>Porta do switch<input value={endpoint.porta} onChange={e => setEndpoint({ ...endpoint, porta: e.target.value })} placeholder="Ex.: 0/1" /></label><label>IP<input value={endpoint.ip} onChange={e => setEndpoint({ ...endpoint, ip: e.target.value })} required /></label><button className="primary">Mapear IP</button></form></section>}<section className="card"><h2>Mapa técnico do cliente</h2>{client.centralizadores.length ? client.centralizadores.map(c => <article className="card" key={c.id}><div className="card-heading"><div><b>{c.nome} · {c.tipo}</b><span>{c.localizacao || 'Local não informado'}</span></div></div><p><b>Origem:</b> {c.origem ? `${c.origem.ponto} — ${linkText(c.origem)}` : 'não registrada'}</p><p><b>Destinos:</b> {(c.destinos || []).length ? (c.destinos || []).map(d => `${d.ponto} (${linkText(d)})`).join(' | ') : 'nenhum'}</p><div className="table-wrap"><table><thead><tr><th>Tipo</th><th>Equipamento</th><th>IP(s)</th><th>Posição</th><th>Dispositivos mapeados</th></tr></thead><tbody>{c.equipamentos.map(e => <tr key={e.id}><td>{e.tipo}</td><td>{e.nome}</td><td>{e.ips || '—'}</td><td>{e.localizacao || '—'}</td><td>{e.tipo === 'Switch' ? (e.dispositivos || []).map(d => `${d.nome} · ${d.ip}${d.porta ? ` · porta ${d.porta}` : ''}`).join(' | ') || 'Nenhum' : '—'}</td></tr>)}</tbody></table></div></article>) : <Empty text="Adicione o primeiro local técnico para iniciar o mapa." />}</section></>
-}
-
-function ManageCentralizers({ db, save, onBack, onOpen }: { db: Database; save: (db: Database, message?: string) => void; onBack: () => void; onOpen: (id: string) => void }) {
-  const [query, setQuery] = useState('')
-  const clients = db.clientes.filter(client => `${client.nome} ${client.endereco}`.toLowerCase().includes(query.toLowerCase()))
-  const edit = (client: Cliente, quadroId: string) => {
-    const quadro = client.centralizadores.find(item => item.id === quadroId)
-    if (!quadro) return
-    const nome = prompt('Nome do quadro:', quadro.nome); if (nome === null) return
-    const localizacao = prompt('Local do quadro:', quadro.localizacao); if (localizacao === null) return
-    const equipamentos = prompt('Lista de equipamentos:', quadro.listaEquipamentos || ''); if (equipamentos === null) return
-    save({ ...db, clientes: db.clientes.map(item => item.id === client.id ? { ...item, centralizadores: item.centralizadores.map(current => current.id === quadroId ? { ...current, nome: nome.trim() || current.nome, localizacao: localizacao.trim(), listaEquipamentos: equipamentos.trim() } : current) } : item) }, 'Centralizador atualizado.')
+  const [showPassword, setShowPassword] = useState(false)
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    onLogin()
   }
-  return <><PageHeader title="Gerenciar centralizadores" subtitle="Selecione um cliente para criar quadros ou edite os dados básicos dos quadros existentes." action={<button onClick={onBack}>← Voltar</button>} /><section className="card"><div className="card-heading"><h2>Clientes</h2><input className="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Pesquisar cliente" /></div><div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Endereço</th><th>Quadros</th><th></th></tr></thead><tbody>{clients.map(client => <tr key={client.id}><td>{client.nome}</td><td>{client.endereco || '—'}</td><td>{client.centralizadores.length}</td><td><button className="primary" onClick={() => onOpen(client.id)}>Criar quadro</button></td></tr>)}</tbody></table></div>{!clients.length && <Empty text="Nenhum cliente encontrado." />}</section><section className="card"><h2>Centralizadores existentes</h2>{db.clientes.flatMap(client => client.centralizadores.map(quadro => ({ client, quadro }))).length ? <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Quadro</th><th>Local</th><th>Equipamentos</th><th></th></tr></thead><tbody>{db.clientes.flatMap(client => client.centralizadores.map(quadro => <tr key={quadro.id}><td>{client.nome}</td><td>{quadro.nome}</td><td>{quadro.localizacao || '—'}</td><td>{quadro.listaEquipamentos || '—'}</td><td><button onClick={() => edit(client, quadro.id)}>Editar</button></td></tr>))}</tbody></table></div> : <Empty text="Nenhum centralizador cadastrado." />}</section></>
+  return <main className="login-page">
+    <section className="login-message">
+      <div className="login-brand"><span>G</span><b>GIO</b></div>
+      <p className="eyebrow light">Gestão Integrada de Operações</p>
+      <h1>Operação organizada.<br />Equipe conectada.</h1>
+      <p>Uma única plataforma para acompanhar equipes, trajetos, veículos, estoque e auditorias.</p>
+      <div className="login-points"><span><CheckCircle2 size={18} />Preparado para celular</span><span><CheckCircle2 size={18} />Funciona mesmo sem internet</span><span><CheckCircle2 size={18} />Acessos por departamento</span></div>
+    </section>
+    <section className="login-panel">
+      <form className="login-card" onSubmit={submit}>
+        <div className="mobile-login-brand"><span>G</span><b>GIO</b></div>
+        <p className="eyebrow">Acesso seguro</p>
+        <h2>Bem-vindo à GIO</h2>
+        <p className="form-intro">Entre com seu e-mail e senha para continuar.</p>
+        <label>E-mail<input type="email" defaultValue="admin@alertsystem.com.br" autoComplete="username" required /></label>
+        <label>Senha<div className="password-field"><input type={showPassword ? 'text' : 'password'} defaultValue="provisoria" autoComplete="current-password" required /><button type="button" onClick={() => setShowPassword(value => !value)}>{showPassword ? 'Ocultar' : 'Mostrar'}</button></div></label>
+        <button className="primary-button full" type="submit">Entrar na plataforma <ChevronRight size={18} /></button>
+        <button className="text-button" type="button">Preciso de uma nova senha provisória</button>
+        <div className="preview-note"><ShieldCheck size={18} /><span>Prévia inicial. A autenticação definitiva será conectada ao ambiente escolhido.</span></div>
+      </form>
+    </section>
+  </main>
 }
 
-function ManageClientHome({ client, db, save, onBack }: { client: Cliente; db: Database; save: (db: Database, message?: string) => void; onBack: () => void }) {
-  const [query, setQuery] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [nome, setNome] = useState('')
-  const [localizacao, setLocalizacao] = useState('')
-  const selected = client.centralizadores.find(quadro => quadro.id === selectedId)
-  const update = (next: Cliente, message: string) => save({ ...db, clientes: db.clientes.map(item => item.id === client.id ? next : item) }, message)
-  const filtered = client.centralizadores.filter(quadro => `${quadro.nome} ${quadro.equipamentos.map(item => item.ips).join(' ')}`.toLowerCase().includes(query.toLowerCase()))
-  const add = (event: FormEvent) => { event.preventDefault(); if (!nome.trim()) return; update({ ...client, centralizadores: [...client.centralizadores, { id: id(), nome: nome.trim(), tipo: 'Quadro', localizacao: localizacao.trim(), equipamentos: [], destinos: [] }] }, 'Centralizador criado.'); setNome(''); setLocalizacao(''); setCreating(false) }
-  if (selected) return <CentralizerView centralizer={selected} clientName={client.nome} onBack={() => setSelectedId(null)} />
-  return <><PageHeader title={client.nome} subtitle="Gerenciamento de centralizadores" action={<button onClick={onBack}>← Voltar para clientes</button>} /><section className="card"><div className="card-heading"><div><h2>Centralizadores</h2><p className="muted">Pesquise pelo nome do quadro ou por um IP usado em seus switches.</p></div><button className="primary" onClick={() => setCreating(!creating)}>+ Centralizador</button></div>{creating && <form className="form-grid" onSubmit={add}><label>Nome do quadro<input value={nome} onChange={event => setNome(event.target.value)} required /></label><label>Local (opcional)<input value={localizacao} onChange={event => setLocalizacao(event.target.value)} /></label><button className="primary">Salvar centralizador</button></form>}</section><section className="card"><div className="card-heading"><h2>Quadros cadastrados</h2><input className="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Pesquisar quadro ou IP" /></div>{filtered.length ? <div className="table-wrap"><table><thead><tr><th>Quadro</th><th></th></tr></thead><tbody>{filtered.map(quadro => <tr key={quadro.id}><td>{quadro.nome}</td><td><button className="primary" onClick={() => setSelectedId(quadro.id)}>Acessar</button></td></tr>)}</tbody></table></div> : <Empty text="Nenhum quadro ou IP encontrado." />}</section></>
+function Dashboard({ activities, onAction, onNavigate, onKm, onRequest }: { activities: { title: string; detail: string; tone: string }[]; onAction: (action: ActionName) => void; onNavigate: (page: Page) => void; onKm: () => void; onRequest: () => void }) {
+  const date = useMemo(() => new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date()), [])
+  return <>
+    <section className="welcome-row">
+      <div><p className="eyebrow">{date}</p><h2>Bom dia, Gabriel</h2><p>Veja o que precisa da sua atenção e registre a operação.</p></div>
+      <button className="secondary-button"><Download size={17} /> Instalar GIO no celular</button>
+    </section>
+
+    <section className="attention-grid">
+      <button className="attention-card critical" onClick={() => onNavigate('estoque')}><span><AlertTriangle size={21} /></span><div><b>3</b><small>Itens com saldo negativo</small></div><ChevronRight size={19} /></button>
+      <button className="attention-card warning"><span><CalendarClock size={21} /></span><div><b>2</b><small>Auditorias próximas</small></div><ChevronRight size={19} /></button>
+      <button className="attention-card neutral" onClick={() => onNavigate('estoque')}><span><PackageCheck size={21} /></span><div><b>5</b><small>Recebimentos pendentes</small></div><ChevronRight size={19} /></button>
+      <button className="attention-card success"><span><ClipboardCheck size={21} /></span><div><b>12</b><small>Registros realizados hoje</small></div><ChevronRight size={19} /></button>
+    </section>
+
+    <section className="form-shortcuts"><button onClick={onKm}><span><CarFront size={22} /></span><div><b>Relatório de KM</b><small>Registre antes de ligar o veículo</small></div><ChevronRight size={19} /></button><button onClick={onRequest}><span><PackageCheck size={22} /></span><div><b>Nova solicitação ao estoque</b><small>Solicite materiais e acompanhe a entrega</small></div><ChevronRight size={19} /></button></section>
+
+    <section className="content-grid">
+      <article className="surface quick-surface">
+        <div className="section-heading"><div><p className="eyebrow">Registro rápido</p><h3>O que está acontecendo agora?</h3></div><MapPin size={21} /></div>
+        <div className="action-grid">{actions.map(item => {
+          const Icon = item.icon
+          return <button key={item.label} className={item.label === 'Esqueci meu ponto' ? 'action-card point' : 'action-card'} onClick={() => onAction(item.label)}><span><Icon size={21} /></span><div><b>{item.label}</b><small>{item.detail}</small></div><ChevronRight size={18} /></button>
+        })}</div>
+      </article>
+
+      <aside className="surface activity-surface">
+        <div className="section-heading"><div><p className="eyebrow">Hoje</p><h3>Seus últimos registros</h3></div><button className="icon-button"><ChevronRight size={18} /></button></div>
+        <div className="timeline">{activities.slice(0, 5).map((item, index) => <div className={`timeline-item ${item.tone}`} key={`${item.title}-${index}`}><span className="timeline-dot" /><div><b>{item.title}</b><small>{item.detail}</small></div></div>)}</div>
+        <p className="privacy-note"><ShieldCheck size={16} />As coordenadas e o horário real são protegidos e visíveis somente nos relatórios autorizados.</p>
+      </aside>
+    </section>
+  </>
 }
 
-function CentralizerView({ centralizer, clientName, onBack }: { centralizer: Cliente['centralizadores'][number]; clientName: string; onBack: () => void }) {
-  const used = (ips: string) => ips.split(/\r?\n/).filter(line => line.trim()).length
-  return <><PageHeader title={centralizer.nome} subtitle={`${clientName}${centralizer.localizacao ? ` · ${centralizer.localizacao}` : ''}`} action={<button onClick={onBack}>← Voltar para quadros</button>} /><section className="card"><h2>Equipamentos</h2><p>{centralizer.listaEquipamentos || 'Nenhum equipamento informado.'}</p></section><section className="card"><h2>Switches</h2>{centralizer.equipamentos.filter(item => item.tipo === 'Switch').length ? <div className="table-wrap"><table><thead><tr><th>Switch</th><th>Portas</th><th>Em uso</th><th>Vagas</th><th>IPs</th></tr></thead><tbody>{centralizer.equipamentos.filter(item => item.tipo === 'Switch').map(switchItem => <tr key={switchItem.id}><td>{switchItem.nome}</td><td>{switchItem.portas || 0}</td><td>{used(switchItem.ips)}</td><td>{Math.max(0, (switchItem.portas || 0) - used(switchItem.ips))}</td><td>{switchItem.ips || '—'}</td></tr>)}</tbody></table></div> : <Empty text="Nenhum switch cadastrado neste quadro." />}</section></>
+function OperationPage({ onAction, onKm }: { onAction: (action: ActionName) => void; onKm: () => void }) {
+  return <>
+    <PageIntro eyebrow="Operação de campo" title="Registros do dia" description="Cada técnico registra a própria movimentação. Registros enviados não podem ser apagados." />
+    <section className="action-grid operation-actions">{actions.map(item => {
+      const Icon = item.icon
+      return <button key={item.label} className={item.label === 'Esqueci meu ponto' ? 'action-card point' : 'action-card'} onClick={() => onAction(item.label)}><span><Icon size={21} /></span><div><b>{item.label}</b><small>{item.detail}</small></div><ChevronRight size={18} /></button>
+    })}</section>
+    <section className="form-shortcuts operation-shortcuts"><button onClick={onKm}><span><CarFront size={22} /></span><div><b>Relatório de KM</b><small>Veículo, destino, troca de condutor, fotos e avarias</small></div><ChevronRight size={19} /></button></section>
+    <section className="surface empty-state"><MapPin size={30} /><h3>Localização protegida</h3><p>A data, o horário e a precisão do GPS serão registrados automaticamente, sem exibir as coordenadas ao técnico.</p></section>
+  </>
 }
 
-function SimpleClientDetails({ client, db, save, onBack }: { client: Cliente; db: Database; save: (db: Database, message?: string) => void; onBack: () => void }) {
-  const [nome, setNome] = useState('')
-  const [localizacao, setLocalizacao] = useState('')
-  const [listaEquipamentos, setListaEquipamentos] = useState('')
-  const [quantidadeSwitches, setQuantidadeSwitches] = useState(1)
-  const [switches, setSwitches] = useState([{ nome: '', portas: 24, ips: '' }])
-  const update = (next: Cliente, message: string) => save({ ...db, clientes: db.clientes.map(c => c.id === client.id ? next : c) }, message)
-  const changeCount = (value: number) => {
-    const count = Math.max(1, Math.min(20, Number.isFinite(value) ? value : 1))
-    setQuantidadeSwitches(count)
-    setSwitches(current => Array.from({ length: count }, (_, index) => current[index] || { nome: `Switch ${index + 1}`, portas: 24, ips: '' }))
-  }
-  const updateSwitch = (index: number, field: 'nome' | 'portas' | 'ips', value: string | number) => setSwitches(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item))
+function StockPage({ onRequest }: { onRequest: () => void }) {
+  return <>
+    <PageIntro eyebrow="Responsabilidade do técnico" title="Estoque do técnico" description="Acompanhe materiais, ferramentas pessoais, rotativas e EPIs sob sua responsabilidade." action={<button className="primary-button" onClick={onRequest}><Plus size={18} /> Nova solicitação</button>} />
+    <section className="stock-tabs"><button className="active">Insumos <span>14</span></button><button>Ferramentas <span>8</span></button><button>EPIs <span>11</span></button></section>
+    <section className="attention-grid stock-summary"><Metric icon={Warehouse} value="126" label="Itens disponíveis" /><Metric icon={PackageCheck} value="5" label="Aguardando confirmação" /><Metric icon={AlertTriangle} value="3" label="Saldo negativo" tone="critical" /></section>
+    <section className="surface table-surface"><div className="table-toolbar"><div><p className="eyebrow">Insumos</p><h3>Materiais cadastrados</h3></div><label className="search-field"><Search size={17} /><input placeholder="Buscar equipamento" /></label></div><div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Marca / modelo</th><th>Unidade</th><th>Disponível</th><th>Status</th></tr></thead><tbody><tr><td>Cabo de rede</td><td>Furukawa Cat6</td><td>Metros</td><td>82,5</td><td><span className="status success">Disponível</span></td></tr><tr><td>Conector RJ45</td><td>—</td><td>Unidade</td><td>-3</td><td><span className="status danger">Saldo negativo</span></td></tr><tr><td>Fita isolante</td><td>3M</td><td>Rolo</td><td>6</td><td><span className="status warning">Estoque mínimo</span></td></tr></tbody></table></div></section>
+  </>
+}
+
+function ReportsPage() {
+  const reports = ['Trajetos', 'Pontos esquecidos', 'Quilometragem', 'Estoque por técnico', 'Solicitações', 'Auditorias de ferramentas', 'Auditorias de EPI', 'Histórico de ações']
+  return <>
+    <PageIntro eyebrow="Informação para decisão" title="Relatórios" description="Consulte apenas as informações liberadas para o seu grupo de acesso." />
+    <section className="report-grid">{reports.map((report, index) => <button className="report-card" key={report}><span><FileBarChart size={22} /></span><div><b>{report}</b><small>{index < 3 ? 'Atualizado hoje' : 'Filtros e exportação para Excel'}</small></div><ChevronRight size={19} /></button>)}</section>
+  </>
+}
+
+function SettingsPage({ onOpenPermissions }: { onOpenPermissions: () => void }) {
+  const departments = ['Técnico', 'RH', 'Logística', 'Estoque', 'Auditor', 'Seg. Trabalho']
+  return <>
+    <PageIntro eyebrow="Administração" title="Configurações e acessos" description="Cadastre a operação e defina exatamente o que cada departamento pode fazer." action={<button className="primary-button"><Plus size={18} /> Cadastrar pessoa</button>} />
+    <section className="settings-grid"><button className="setting-card"><Users size={22} /><div><b>Pessoas e grupos</b><small>30 pessoas cadastradas</small></div><ChevronRight size={18} /></button><button className="setting-card"><Warehouse size={22} /><div><b>Clientes e veículos</b><small>Cadastros operacionais</small></div><ChevronRight size={18} /></button><button className="setting-card"><ShieldCheck size={22} /><div><b>Histórico de segurança</b><small>Ações e alterações</small></div><ChevronRight size={18} /></button></section>
+    <section className="surface permission-surface"><div className="section-heading"><div><p className="eyebrow">Matriz de permissões</p><h3>Acessos por departamento</h3></div><button className="secondary-button" onClick={onOpenPermissions}>Abrir matriz completa</button></div><div className="responsive-table"><table className="permission-table"><thead><tr><th>Funcionalidade</th>{departments.map(item => <th key={item}>{item}</th>)}</tr></thead><tbody>{['Visualizar clientes', 'Registrar trajeto', 'Visualizar todos os registros', 'Gerenciar estoque'].map((permission, row) => <tr key={permission}><td>{permission}</td>{departments.map((department, column) => <td key={department}><span className={(row + column) % 3 === 0 || (row === 1 && column === 0) ? 'permission on' : 'permission'}>{(row + column) % 3 === 0 || (row === 1 && column === 0) ? '✓' : ''}</span></td>)}</tr>)}</tbody></table></div><p className="admin-note"><ShieldCheck size={17} />O Administrador não aparece na matriz porque sempre possui acesso total.</p></section>
+  </>
+}
+
+function QuickRegister({ action, online, onClose, onSave }: { action: ActionName; online: boolean; onClose: () => void; onSave: (action: ActionName, summary: string) => void }) {
+  const [date, setDate] = useState(todayInput())
+  const [time, setTime] = useState(nowInput())
+  const [client, setClient] = useState('')
+  const [pointType, setPointType] = useState('Entrada')
+  const [observation, setObservation] = useState('')
+  const [selectedTeam, setSelectedTeam] = useState<string[]>([])
+  const isPoint = action === 'Esqueci meu ponto'
+  const needsTeam = action === 'Encontro' || action === 'Desencontro'
+  const technicians = ['Ana Martins', 'Bruno Lima', 'Marcos Silva', 'Paulo Souza']
+  const minDate = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10)
+
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (!nome.trim() || !localizacao.trim()) return
-    update({ ...client, centralizadores: [...client.centralizadores, { id: id(), nome: nome.trim(), tipo: 'Quadro', localizacao: localizacao.trim(), listaEquipamentos: listaEquipamentos.trim(), equipamentos: switches.map((item, index) => ({ id: id(), nome: item.nome.trim() || `Switch ${index + 1}`, tipo: 'Switch' as const, portas: Number(item.portas) || 0, ips: item.ips.trim(), localizacao: '', status: 'Ativo' as const, dispositivos: [] })), destinos: [] }] }, 'Quadro e switches cadastrados.')
-    setNome(''); setLocalizacao(''); setListaEquipamentos(''); setQuantidadeSwitches(1); setSwitches([{ nome: '', portas: 24, ips: '' }])
+    const detail = isPoint ? `${pointType} · ${time}` : `${client || 'Sem cliente'} · ${time}`
+    onSave(action, detail)
   }
-  const used = (ips: string) => ips.split(/\r?\n/).filter(line => line.trim()).length
-  return <><PageHeader title={client.nome} subtitle={client.endereco || 'Endereço não informado'} action={<button onClick={onBack}>← Voltar</button>} /><section className="card"><h2>Cadastrar quadro</h2><p className="muted">Informe os IPs usados, um por linha. O sistema calcula as portas livres de cada switch.</p><form className="stack" onSubmit={submit}><div className="form-grid"><label>Nome do quadro<input value={nome} onChange={e => setNome(e.target.value)} placeholder="Ex.: Quadro principal" required /></label><label>Local<input value={localizacao} onChange={e => setLocalizacao(e.target.value)} placeholder="Ex.: Sala de TI, piso térreo" required /></label><label>Equipamentos<textarea value={listaEquipamentos} onChange={e => setListaEquipamentos(e.target.value)} placeholder="Nobreak 1500VA&#10;Banco de baterias&#10;Conversor" /></label><label>Quantidade de switches<input type="number" min="1" max="20" value={quantidadeSwitches} onChange={e => changeCount(Number(e.target.value))} /></label></div><div className="list">{switches.map((item, index) => <section className="card" key={index}><h2>Switch {index + 1}</h2><div className="form-grid"><label>Nome do switch<input value={item.nome} onChange={e => updateSwitch(index, 'nome', e.target.value)} placeholder={`Ex.: Switch ${index + 1} - TP-Link`} /></label><label>Quantidade de portas<input type="number" min="1" value={item.portas} onChange={e => updateSwitch(index, 'portas', Number(e.target.value))} /></label><label className="full">IPs em uso — um por linha<textarea value={item.ips} onChange={e => updateSwitch(index, 'ips', e.target.value)} placeholder={'192.168.1.10\n192.168.1.11\n192.168.1.12'} /></label></div><p className="muted"><b>{used(item.ips)}</b> porta(s) em uso · <b>{Math.max(0, Number(item.portas || 0) - used(item.ips))}</b> porta(s) vaga(s)</p></section>)}</div><button className="primary">Salvar quadro</button></form></section><section className="card"><h2>Quadros cadastrados</h2>{client.centralizadores.length ? <div className="list">{client.centralizadores.map(quadro => <article className="card" key={quadro.id}><div className="card-heading"><div><b>{quadro.nome}</b><span>{quadro.localizacao || 'Local não informado'}</span></div></div><p><b>Equipamentos:</b> {quadro.listaEquipamentos || 'Não informado'}</p>{quadro.equipamentos.filter(e => e.tipo === 'Switch').length ? quadro.equipamentos.filter(e => e.tipo === 'Switch').map(sw => <section className="card" key={sw.id}><b>{sw.nome}</b><p className="muted">{sw.portas || 0} portas · {used(sw.ips)} em uso · <b>{Math.max(0, (sw.portas || 0) - used(sw.ips))} vagas</b></p><p><b>IPs usados:</b><br />{sw.ips || 'Nenhum IP informado'}</p></section>) : <Empty text="Nenhum switch informado." />}</article>)}</div> : <Empty text="Nenhum quadro cadastrado." />}</section></>
+
+  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={action}>
+    <button className="modal-backdrop" onClick={onClose} aria-label="Fechar" />
+    <form className="quick-modal" onSubmit={submit}>
+      <div className="modal-heading"><div><p className="eyebrow">Novo registro</p><h2>{action}</h2></div><button type="button" className="icon-button" onClick={onClose}><X size={21} /></button></div>
+      <div className={online ? 'capture-state' : 'capture-state offline'}>{online ? <MapPin size={18} /> : <SignalZero size={18} />}<div><b>{online ? 'Localização pronta para registrar' : 'Registro será salvo offline'}</b><small>Horário real e precisão do GPS ficarão protegidos.</small></div></div>
+      <div className="form-grid">
+        <label>Data<input type="date" value={date} min={isPoint ? minDate : todayInput()} max={todayInput()} onChange={event => setDate(event.target.value)} required /></label>
+        <label>Horário informado<input type="time" value={time} onChange={event => setTime(event.target.value)} required /></label>
+        {isPoint ? <label>Tipo de ponto<select value={pointType} onChange={event => setPointType(event.target.value)}><option>Entrada</option><option>Saída</option><option>Início do almoço</option><option>Término do almoço</option></select></label> : <label>Cliente (opcional)<select value={client} onChange={event => setClient(event.target.value)}><option value="">Sem cliente</option><option>Cliente Alpha</option><option>Hospital Central</option><option>Outros</option></select></label>}
+      </div>
+      {needsTeam && <fieldset className="team-field"><legend>Técnicos envolvidos</legend><div>{technicians.map(name => <label key={name}><input type="checkbox" checked={selectedTeam.includes(name)} onChange={() => setSelectedTeam(current => current.includes(name) ? current.filter(item => item !== name) : [...current, name])} />{name}</label>)}</div>{selectedTeam.length === 0 && <small>Selecione pelo menos um técnico para continuar.</small>}</fieldset>}
+      <label>{isPoint ? 'Justificativa obrigatória' : 'Observação (opcional)'}<textarea value={observation} onChange={event => setObservation(event.target.value)} required={isPoint} placeholder={isPoint ? 'Explique por que o ponto não foi registrado no outro aplicativo.' : 'Inclua uma informação importante, se necessário.'} /></label>
+      <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={needsTeam && selectedTeam.length === 0}>Confirmar registro <ChevronRight size={18} /></button></div>
+    </form>
+  </div>
 }
 
-function ConsultClientDetails({ client, onBack }: { client: Cliente; onBack: () => void }) {
-  const [query, setQuery] = useState('')
-  const quadros = client.centralizadores.filter(quadro => `${quadro.nome} ${quadro.localizacao} ${(quadro.listaEquipamentos || '')}`.toLowerCase().includes(query.toLowerCase()))
-  const mapsUrl = client.latitude && client.longitude ? `https://www.google.com/maps?q=${encodeURIComponent(`${client.latitude},${client.longitude}`)}` : ''
-  const used = (ips: string) => ips.split(/\r?\n/).filter(line => line.trim()).length
-  return <><PageHeader title={client.nome} subtitle="Consulta técnica — nenhum dado pode ser alterado nesta tela." action={<button onClick={onBack}>← Voltar para clientes</button>} /><section className="card"><div className="card-heading"><div><h2>Dados do cliente</h2><p className="muted">{client.endereco || 'Endereço não informado'}</p></div>{mapsUrl && <a href={mapsUrl} target="_blank" rel="noreferrer">Abrir localização no mapa</a>}</div><p className="muted">Coordenadas: {client.latitude && client.longitude ? `${client.latitude}, ${client.longitude}` : 'não informadas'}</p></section><section className="card"><div className="card-heading"><h2>Centralizadores</h2><input className="search" list="centralizer-suggestions" value={query} onChange={event => setQuery(event.target.value)} placeholder="Pesquisar quadro, rack ou local" /><datalist id="centralizer-suggestions">{client.centralizadores.map(quadro => <option value={quadro.nome} key={quadro.id} />)}</datalist></div>{quadros.length ? <div className="table-wrap"><table><thead><tr><th>Nome</th><th>Local</th><th>Equipamentos</th><th>Switches</th></tr></thead><tbody>{quadros.map(quadro => <tr key={quadro.id}><td>{quadro.nome}</td><td>{quadro.localizacao || '—'}</td><td>{quadro.listaEquipamentos || '—'}</td><td>{quadro.equipamentos.filter(e => e.tipo === 'Switch').length}</td></tr>)}</tbody></table></div> : <Empty text="Nenhum centralizador encontrado." />}</section>{quadros.map(quadro => <section className="card" key={quadro.id}><h2>{quadro.nome}</h2><p className="muted">Local: {quadro.localizacao || 'não informado'}</p><p><b>Equipamentos:</b> {quadro.listaEquipamentos || 'não informado'}</p><div className="table-wrap"><table><thead><tr><th>Switch</th><th>Portas</th><th>Em uso</th><th>Vagas</th><th>IPs usados</th></tr></thead><tbody>{quadro.equipamentos.filter(e => e.tipo === 'Switch').map(sw => <tr key={sw.id}><td>{sw.nome}</td><td>{sw.portas || 0}</td><td>{used(sw.ips)}</td><td>{Math.max(0, (sw.portas || 0) - used(sw.ips))}</td><td>{sw.ips || '—'}</td></tr>)}</tbody></table></div>{!quadro.equipamentos.some(e => e.tipo === 'Switch') && <Empty text="Nenhum switch cadastrado neste centralizador." />}</section>)}</>
+function PageIntro({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {
+  return <section className="page-intro"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2><p>{description}</p></div>{action}</section>
 }
 
-function Trajetos({ db, save }: { db: Database; save: (db: Database, message?: string) => void }) {
-  const [form, setForm] = useState({ data: today(), acao: 'Saída de casa', hora: '', tecnico: '', equipe: '', cliente: '', observacao: '' })
-  const submit = (event: FormEvent) => { event.preventDefault(); const item: Trajeto = { id: id(), ...form }; save({ ...db, trajetos: [...db.trajetos, item] }, 'Trajeto registrado.'); setForm({ ...form, hora: '', tecnico: '', equipe: '', cliente: '', observacao: '' }) }
-  const set = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setForm({ ...form, [key]: event.target.value })
-  return <><PageHeader title="Notificações de trajeto" subtitle="Registre a movimentação das equipes." /><section className="card"><form className="form-grid" onSubmit={submit}><label>Data<input type="date" value={form.data} onChange={set('data')} required /></label><label>Ação<select value={form.acao} onChange={set('acao')}><option>Saída de casa</option><option>Encontro</option><option>Desencontro</option><option>Chegada em casa</option><option>Esqueci meu ponto</option></select></label><label>Horário<input type="time" value={form.hora} onChange={set('hora')} required /></label><label>Técnico<input value={form.tecnico} onChange={set('tecnico')} required /></label><label>Equipe<input value={form.equipe} onChange={set('equipe')} /></label><label>Cliente<input value={form.cliente} onChange={set('cliente')} /></label><label className="full">Observações<textarea value={form.observacao} onChange={set('observacao')} /></label><button className="primary">Registrar trajeto</button></form></section><Table headers={['Data', 'Ação', 'Horário', 'Técnico', 'Equipe', 'Cliente']} rows={db.trajetos.slice().reverse().map(t => [formatDate(t.data), t.acao, t.hora, t.tecnico, t.equipe, t.cliente])} empty="Nenhum trajeto registrado." /></>
+function Metric({ icon: Icon, value, label, tone = '' }: { icon: ComponentType<{ size?: number }>; value: string; label: string; tone?: string }) {
+  return <article className={`metric-card ${tone}`}><span><Icon size={21} /></span><div><b>{value}</b><small>{label}</small></div></article>
 }
-
-function Estoque({ db, save }: { db: Database; save: (db: Database, message?: string) => void }) {
-  const [tech, setTech] = useState(''); const [item, setItem] = useState(''); const [type, setType] = useState<'Ferramenta' | 'Insumo'>('Ferramenta'); const [quantity, setQuantity] = useState(1)
-  const addTechnician = (event: FormEvent) => { event.preventDefault(); if (!tech.trim()) return; const newTech: Tecnico = { id: id(), nome: tech.trim(), itens: [] }; save({ ...db, tecnicos: [...db.tecnicos, newTech] }, 'Técnico cadastrado.'); setTech('') }
-  const addItem = (event: FormEvent) => { event.preventDefault(); if (!item.trim()) return; const owner = db.tecnicos[0]; if (!owner) return alert('Cadastre um técnico primeiro.'); const next = db.tecnicos.map(t => t.id === owner.id ? { ...t, itens: [...t.itens, { id: id(), nome: item.trim(), tipo: type, quantidade: quantity, status: 'Ativo' as const, observacao: '' }] } : t); save({ ...db, tecnicos: next }, `Item vinculado a ${owner.nome}.`); setItem(''); setQuantity(1) }
-  const all = db.tecnicos.flatMap(t => t.itens.map(i => [t.nome, i.nome, i.tipo, String(i.quantidade), i.status]))
-  return <><PageHeader title="Estoque do técnico" subtitle="Controle de ferramentas e insumos em campo." /><section className="two-columns"><section className="card"><h2>Novo técnico</h2><form className="stack" onSubmit={addTechnician}><label>Nome<input value={tech} onChange={e => setTech(e.target.value)} required /></label><button className="primary">Adicionar técnico</button></form></section><section className="card"><h2>Novo item</h2><form className="form-grid" onSubmit={addItem}><label>Item<input value={item} onChange={e => setItem(e.target.value)} required /></label><label>Tipo<select value={type} onChange={e => setType(e.target.value as typeof type)}><option>Ferramenta</option><option>Insumo</option></select></label><label>Quantidade<input type="number" min="1" value={quantity} onChange={e => setQuantity(Number(e.target.value))} /></label><button className="primary">Adicionar ao primeiro técnico</button></form></section></section><Table headers={['Técnico', 'Item', 'Tipo', 'Quantidade', 'Status']} rows={all} empty="Nenhum item de estoque registrado." /></>
-}
-
-function Km({ db, save }: { db: Database; save: (db: Database, message?: string) => void }) {
-  const [form, setForm] = useState({ data: today(), carro: '', motorista: '', trajeto: '', km: '', avarias: 'Não', observacao: '' })
-  const submit = (event: FormEvent) => { event.preventDefault(); const record: RegistroKm = { id: id(), data: form.data, carro: form.carro, motorista: form.motorista, trajeto: form.trajeto, km: Number(form.km), avarias: form.avarias === 'Sim', observacao: form.observacao }; save({ ...db, km: [...db.km, record] }, 'Quilometragem registrada.'); setForm({ ...form, carro: '', motorista: '', trajeto: '', km: '', observacao: '' }) }
-  const set = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setForm({ ...form, [key]: event.target.value })
-  return <><PageHeader title="Relatório de KM" subtitle="Acompanhe veículos, trajetos e avarias." /><section className="card"><form className="form-grid" onSubmit={submit}><label>Data<input type="date" value={form.data} onChange={set('data')} /></label><label>Carro<select value={form.carro} onChange={set('carro')} required><option value="">Selecione</option>{Array.from({ length: 13 }, (_, i) => <option key={i}>Carro {i + 1}</option>)}</select></label><label>Motorista<input value={form.motorista} onChange={set('motorista')} required /></label><label>Trajeto<input value={form.trajeto} onChange={set('trajeto')} required /></label><label>KM atual<input type="number" min="0" step="0.1" value={form.km} onChange={set('km')} required /></label><label>Avarias<select value={form.avarias} onChange={set('avarias')}><option>Não</option><option>Sim</option></select></label><label className="full">Observações<textarea value={form.observacao} onChange={set('observacao')} /></label><button className="primary">Registrar KM</button></form></section><Table headers={['Data', 'Carro', 'Motorista', 'Trajeto', 'KM', 'Avarias']} rows={db.km.slice().reverse().map(k => [formatDate(k.data), k.carro, k.motorista, k.trajeto, String(k.km), k.avarias ? 'Sim' : 'Não'])} empty="Nenhuma quilometragem registrada." /></>
-}
-
-function Relatorios({ db }: { db: Database }) {
-  const exportAll = () => download(`relatorio-campo-${today()}.csv`, [['Tipo', 'Data', 'Responsável', 'Detalhes'], ...db.trajetos.map(t => ['Trajeto', t.data, t.tecnico, `${t.acao} — ${t.cliente}`]), ...db.km.map(k => ['KM', k.data, k.motorista, `${k.carro}: ${k.km} km`])])
-  return <><PageHeader title="Relatórios" subtitle="Exporte os dados registrados no sistema." action={<button className="primary" onClick={exportAll}>Exportar CSV</button>} /><section className="stats"><Stat label="Clientes" value={db.clientes.length} icon="◫" /><Stat label="Trajetos" value={db.trajetos.length} icon="↗" /><Stat label="Registros KM" value={db.km.length} icon="▤" /><Stat label="Técnicos" value={db.tecnicos.length} icon="♙" /></section><section className="card"><h2>Próxima integração</h2><p className="muted">Os dados deste protótipo estão neste dispositivo. Ao conectar o Supabase, estes relatórios poderão combinar dados de toda a equipe, com filtros por período, técnico, cliente e veículo.</p></section></>
-}
-
-function Table({ headers, rows, empty }: { headers: string[]; rows: string[][]; empty: string }) { return <section className="card table-card"><div className="table-wrap"><table><thead><tr>{headers.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}>{cell || '—'}</td>)}</tr>)}</tbody></table></div>{!rows.length && <Empty text={empty} />}</section> }
