@@ -152,7 +152,7 @@ async function createVehiclePdf({ record, vehicle, signature, vehicleImages, dam
   const code = `TROCA-${record.vehicle}-${new Date(record.createdAt).getTime()}`
   try {
     const logo = await fetch('/alert-logo.png').then(response => response.blob()).then(blobToDataUrl)
-    pdf.addImage(logo, 'PNG', 15, 12, 48, 20)
+    pdf.addImage(logo, 'PNG', 15, 12, 48, 24)
   } catch { /* O título textual mantém o documento identificável. */ }
   pdf.setTextColor(48, 51, 54)
   pdf.setFont('helvetica', 'bold')
