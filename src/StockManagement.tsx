@@ -1,63 +1,59 @@
-import { FormEvent, useMemo, useState } from 'react'
-import { AlertTriangle, Boxes, PackageCheck, Plus, UserRoundCheck, Users } from 'lucide-react'
-import type { AppData, StockAssignment } from './store'
+import { FormEvent, useState } from 'react'
+import { PackageCheck, Plus } from 'lucide-react'
+import type { AppData, InventoryItem, StockAssignment } from './store'
+
+const emptyForm = { personId: '', category: 'Ferramenta pessoal' as InventoryItem['category'], equipment: '', brand: '', model: '', code: '', unit: 'Unidade' as InventoryItem['unit'], quantity: '1', notes: '' }
 
 export function StockManagement({ data, onChange }: { data: AppData; onChange: (data: AppData, message?: string) => void }) {
   const activePeople = data.people.filter(person => person.active)
-  const [personId, setPersonId] = useState(activePeople[0]?.id ?? '')
-  const [itemId, setItemId] = useState(data.inventory[0]?.id ?? '')
-  const [quantity, setQuantity] = useState('1')
-  const [notes, setNotes] = useState('')
-  const selectedPerson = activePeople.find(person => person.id === personId)
-  const selectedItem = data.inventory.find(item => item.id === itemId)
-
-  const balances = useMemo(() => {
-    const totals = new Map<string, number>()
-    data.stockAssignments.filter(item => item.personId === personId && item.status === 'Aprovado').forEach(item => totals.set(item.inventoryItemId, (totals.get(item.inventoryItemId) ?? 0) + item.quantity))
-    data.materialUsages.filter(item => item.personId === personId).forEach(item => totals.set(item.inventoryItemId, (totals.get(item.inventoryItemId) ?? 0) - item.quantity))
-    return [...totals.entries()].map(([inventoryItemId, total]) => ({ item: data.inventory.find(entry => entry.id === inventoryItemId), total })).filter(entry => entry.item && entry.total !== 0)
-  }, [data.inventory, data.materialUsages, data.stockAssignments, personId])
+  const [form, setForm] = useState({ ...emptyForm, personId: activePeople[0]?.id ?? '' })
+  const selectedPerson = activePeople.find(person => person.id === form.personId)
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    const amount = Number(quantity)
-    if (!selectedPerson || !selectedItem || !Number.isFinite(amount) || amount <= 0) return
-    const assignment: StockAssignment = {
-      id: crypto.randomUUID(), personId: selectedPerson.id, inventoryItemId: selectedItem.id,
-      quantity: amount, assignedAt: new Date().toISOString(), assignedBy: data.account.name, notes: notes.trim(), status: 'Pendente',
+    const amount = Number(form.quantity)
+    if (!selectedPerson || !form.equipment.trim() || !form.code.trim() || !Number.isFinite(amount) || amount <= 0) return
+
+    const normalizedCode = form.code.trim().toUpperCase()
+    const existingItem = data.inventory.find(item => item.code.trim().toUpperCase() === normalizedCode)
+    const inventoryItem: InventoryItem = existingItem ?? {
+      id: crypto.randomUUID(), equipment: form.equipment.trim(), brand: form.brand.trim(), model: form.model.trim(),
+      category: form.category, unit: form.unit, quantity: 0, minimum: 0, code: normalizedCode, notes: 'Criado automaticamente pela Gestão de Estoque.',
     }
+    const assignment: StockAssignment = {
+      id: crypto.randomUUID(), personId: selectedPerson.id, inventoryItemId: inventoryItem.id,
+      equipment: form.equipment.trim(), brand: form.brand.trim(), model: form.model.trim(), category: form.category,
+      unit: form.unit, code: normalizedCode, quantity: amount, assignedAt: new Date().toISOString(),
+      assignedBy: data.account.name, notes: form.notes.trim(), status: 'Pendente',
+    }
+
     onChange({
       ...data,
-      inventory: data.inventory.map(item => item.id === selectedItem.id ? { ...item, quantity: item.quantity - amount } : item),
+      inventory: existingItem ? data.inventory.map(item => item.id === existingItem.id ? { ...item, quantity: item.quantity - amount } : item) : [...data.inventory, inventoryItem],
       stockAssignments: [...data.stockAssignments, assignment],
-      notifications: [...data.notifications, { id: crypto.randomUUID(), title: 'Nova aprovação de estoque', detail: `${selectedItem.equipment} · ${amount} ${selectedItem.unit.toLowerCase()} para ${selectedPerson.name}`, createdAt: new Date().toISOString(), read: false, critical: false }],
-    }, `Solicitação de inclusão enviada para ${selectedPerson.name}.`)
-    setQuantity('1')
-    setNotes('')
+      notifications: [...data.notifications, { id: crypto.randomUUID(), title: 'Nova aprovação de estoque', detail: `${assignment.equipment} · código ${assignment.code} · ${amount} ${assignment.unit.toLowerCase()} para ${selectedPerson.name}`, createdAt: new Date().toISOString(), read: false, critical: false }],
+    }, `Atribuição enviada para aprovação de ${selectedPerson.name}.`)
+    setForm({ ...emptyForm, personId: selectedPerson.id })
   }
 
-  const userCountWithStock = new Set(data.stockAssignments.filter(item => item.status === 'Aprovado').map(item => item.personId)).size
   return <>
-    <section className="page-intro"><div><p className="eyebrow">Estoque e administração</p><h2>Gestão de estoque</h2><p>Atribua ferramentas, insumos e EPIs do estoque central aos usuários cadastrados.</p></div></section>
-    <section className="attention-grid stock-summary"><article className="metric-card"><span><Users size={21} /></span><div><b>{activePeople.length}</b><small>Usuários com estoque individual</small></div></article><article className="metric-card"><span><UserRoundCheck size={21} /></span><div><b>{userCountWithStock}</b><small>Usuários com itens atribuídos</small></div></article><article className="metric-card"><span><Boxes size={21} /></span><div><b>{data.inventory.length}</b><small>Itens no estoque central</small></div></article></section>
+    <section className="page-intro"><div><p className="eyebrow">Estoque e administração</p><h2>Gestão de estoque</h2><p>Preencha os dados do equipamento e vincule diretamente à pessoa responsável.</p></div></section>
+    <form className="surface simple-assignment-form" onSubmit={submit}>
+      <div className="section-heading"><div><p className="eyebrow">Nova atribuição</p><h3>Vincular equipamento à pessoa</h3></div><PackageCheck size={22} /></div>
+      <div className="simple-assignment-grid">
+        <label className="wide">Pessoa<select value={form.personId} onChange={event => setForm({ ...form, personId: event.target.value })} required><option value="">Selecione uma pessoa</option>{activePeople.map(person => <option value={person.id} key={person.id}>{person.name} · {person.groups.join(', ')}</option>)}</select></label>
+        <label>Categoria<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value as InventoryItem['category'] })}><option>Ferramenta pessoal</option><option>Ferramenta rotativa</option><option>Insumo</option><option>EPI</option></select></label>
+        <label>Equipamento<input value={form.equipment} onChange={event => setForm({ ...form, equipment: event.target.value })} placeholder="Nome do equipamento" required /></label>
+        <label>Código do equipamento<input value={form.code} onChange={event => setForm({ ...form, code: event.target.value.toUpperCase() })} placeholder="Código ou identificação" required /></label>
+        <label>Marca (opcional)<input value={form.brand} onChange={event => setForm({ ...form, brand: event.target.value })} /></label>
+        <label>Modelo (opcional)<input value={form.model} onChange={event => setForm({ ...form, model: event.target.value })} /></label>
+        <label>Unidade<select value={form.unit} onChange={event => setForm({ ...form, unit: event.target.value as InventoryItem['unit'] })}><option>Unidade</option><option>Caixa</option><option>Metros</option><option>Rolo</option></select></label>
+        <label>Quantidade<input type="number" min="0.01" step={form.unit === 'Metros' ? '0.01' : '1'} value={form.quantity} onChange={event => setForm({ ...form, quantity: event.target.value })} required /></label>
+        <label className="wide">Observação (opcional)<textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="Tamanho, número de série ou informação da retirada" /></label>
+      </div>
+      <div className="simple-assignment-footer"><p>Após salvar, a pessoa deverá confirmar a aprovação e a retirada na aba <b>Aprovações</b>.</p><button className="primary-button" disabled={!form.personId}><Plus size={18} /> Enviar para aprovação</button></div>
+    </form>
 
-    <section className="stock-management-grid">
-      <form className="surface assignment-form" onSubmit={submit}>
-        <div className="section-heading"><div><p className="eyebrow">Nova movimentação</p><h3>Atribuir item ao usuário</h3></div><PackageCheck size={21} /></div>
-        <label>Usuário<select value={personId} onChange={event => setPersonId(event.target.value)} required><option value="">Selecione</option>{activePeople.map(person => <option value={person.id} key={person.id}>{person.name} · {person.groups.join(', ')}</option>)}</select></label>
-        <label>Equipamento<select value={itemId} onChange={event => setItemId(event.target.value)} required><option value="">Selecione</option>{data.inventory.map(item => <option value={item.id} key={item.id}>{item.equipment} · {item.category} · saldo {item.quantity} {item.unit.toLowerCase()}</option>)}</select></label>
-        <label>Quantidade<input type="number" min="0.01" step={selectedItem?.unit === 'Metros' ? '0.01' : '1'} value={quantity} onChange={event => setQuantity(event.target.value)} required /></label>
-        <label>Observação (opcional)<textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder="Número de série, tamanho ou informação da entrega" /></label>
-        {selectedItem && Number(quantity) > selectedItem.quantity && <p className="assignment-warning"><AlertTriangle size={16} />A atribuição deixará o estoque central com saldo negativo de {selectedItem.quantity - Number(quantity)} {selectedItem.unit.toLowerCase()}.</p>}
-        <button className="primary-button full" disabled={!personId || !itemId}><Plus size={18} /> Confirmar atribuição</button>
-      </form>
-
-      <section className="surface user-stock-card">
-        <div className="section-heading"><div><p className="eyebrow">Estoque individual</p><h3>{selectedPerson?.name ?? 'Selecione um usuário'}</h3></div><UserRoundCheck size={21} /></div>
-        <div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Categoria</th><th>Quantidade disponível</th></tr></thead><tbody>{balances.length ? balances.map(({ item, total }) => <tr key={item!.id}><td>{item!.equipment}</td><td>{item!.category}</td><td>{total} {item!.unit.toLowerCase()}</td></tr>) : <tr><td colSpan={3} className="table-empty">Este usuário ainda não possui itens aprovados.</td></tr>}</tbody></table></div>
-      </section>
-    </section>
-
-    <section className="surface table-surface assignment-history"><div className="table-toolbar"><div><p className="eyebrow">Rastreabilidade</p><h3>Últimas atribuições</h3></div></div><div className="responsive-table"><table><thead><tr><th>Data</th><th>Usuário</th><th>Equipamento</th><th>Quantidade</th><th>Status</th><th>Atribuído por</th></tr></thead><tbody>{data.stockAssignments.length ? [...data.stockAssignments].reverse().map(entry => { const person = data.people.find(item => item.id === entry.personId); const item = data.inventory.find(inventory => inventory.id === entry.inventoryItemId); return <tr key={entry.id}><td>{new Date(entry.assignedAt).toLocaleString('pt-BR')}</td><td>{person?.name ?? 'Usuário removido'}</td><td>{item?.equipment ?? 'Item removido'}</td><td>{entry.quantity} {item?.unit.toLowerCase() ?? ''}</td><td><span className={`status ${entry.status === 'Aprovado' ? 'success' : 'warning'}`}>{entry.status}</span></td><td>{entry.assignedBy}</td></tr> }) : <tr><td colSpan={6} className="table-empty">Nenhuma atribuição realizada.</td></tr>}</tbody></table></div></section>
+    <section className="surface table-surface assignment-history"><div className="table-toolbar"><div><p className="eyebrow">Acompanhamento</p><h3>Atribuições realizadas</h3></div></div><div className="responsive-table"><table><thead><tr><th>Data</th><th>Pessoa</th><th>Equipamento</th><th>Código</th><th>Quantidade</th><th>Status</th></tr></thead><tbody>{data.stockAssignments.length ? [...data.stockAssignments].reverse().map(entry => { const person = data.people.find(item => item.id === entry.personId); return <tr key={entry.id}><td>{new Date(entry.assignedAt).toLocaleString('pt-BR')}</td><td>{person?.name ?? 'Pessoa removida'}</td><td>{entry.equipment}</td><td>{entry.code}</td><td>{entry.quantity} {entry.unit.toLowerCase()}</td><td><span className={`status ${entry.status === 'Aprovado e retirado' ? 'success' : 'warning'}`}>{entry.status}</span></td></tr> }) : <tr><td colSpan={6} className="table-empty">Nenhuma atribuição realizada.</td></tr>}</tbody></table></div></section>
   </>
 }

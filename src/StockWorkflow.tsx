@@ -4,23 +4,23 @@ import type { AppData, MaterialUsage } from './store'
 
 function personalBalances(data: AppData, personId: string) {
   const totals = new Map<string, number>()
-  data.stockAssignments.filter(item => item.personId === personId && item.status === 'Aprovado').forEach(item => totals.set(item.inventoryItemId, (totals.get(item.inventoryItemId) ?? 0) + item.quantity))
+  data.stockAssignments.filter(item => item.personId === personId && item.status === 'Aprovado e retirado').forEach(item => totals.set(item.inventoryItemId, (totals.get(item.inventoryItemId) ?? 0) + item.quantity))
   data.materialUsages.filter(item => item.personId === personId).forEach(item => totals.set(item.inventoryItemId, (totals.get(item.inventoryItemId) ?? 0) - item.quantity))
   return totals
 }
 
 export function StockApprovals({ data, onChange }: { data: AppData; onChange: (data: AppData, message?: string) => void }) {
   const pending = data.stockAssignments.filter(item => item.personId === data.account.id && item.status === 'Pendente')
-  const approved = data.stockAssignments.filter(item => item.personId === data.account.id && item.status === 'Aprovado')
+  const approved = data.stockAssignments.filter(item => item.personId === data.account.id && item.status === 'Aprovado e retirado')
   const approve = (id: string) => {
     const assignment = data.stockAssignments.find(item => item.id === id)
     const equipment = data.inventory.find(item => item.id === assignment?.inventoryItemId)
-    onChange({ ...data, stockAssignments: data.stockAssignments.map(item => item.id === id ? { ...item, status: 'Aprovado' as const, approvedAt: new Date().toISOString() } : item) }, `${equipment?.equipment ?? 'Equipamento'} incluído no seu estoque.`)
+    onChange({ ...data, stockAssignments: data.stockAssignments.map(item => item.id === id ? { ...item, status: 'Aprovado e retirado' as const, approvedAt: new Date().toISOString() } : item) }, `${assignment?.equipment ?? equipment?.equipment ?? 'Equipamento'} incluído no seu estoque.`)
   }
   return <>
     <section className="page-intro"><div><p className="eyebrow">Meu estoque</p><h2>Aprovações</h2><p>Confirme o recebimento dos equipamentos atribuídos pelo Estoque ou Administrador.</p></div></section>
-    <section className="approval-list">{pending.length ? pending.map(entry => { const item = data.inventory.find(inventory => inventory.id === entry.inventoryItemId); return <article className="surface approval-card" key={entry.id}><span><PackageCheck size={24} /></span><div><p className="eyebrow">Aguardando sua confirmação</p><h3>{item?.equipment ?? 'Equipamento'}</h3><p>{entry.quantity} {item?.unit.toLowerCase()} · {item?.category}</p><small>Atribuído por {entry.assignedBy} em {new Date(entry.assignedAt).toLocaleString('pt-BR')}</small>{entry.notes && <small>Observação: {entry.notes}</small>}</div><button className="primary-button" onClick={() => approve(entry.id)}><CheckCircle2 size={18} /> Confirmar recebimento</button></article> }) : <section className="surface empty-state"><ShieldCheck size={30} /><h3>Nenhuma aprovação pendente</h3><p>Quando um equipamento for atribuído a você, a solicitação aparecerá aqui.</p></section>}</section>
-    {approved.length > 0 && <section className="surface table-surface approval-history"><div className="table-toolbar"><div><p className="eyebrow">Histórico</p><h3>Inclusões aprovadas</h3></div></div><div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Quantidade</th><th>Atribuído por</th><th>Aprovado em</th></tr></thead><tbody>{approved.map(entry => { const item = data.inventory.find(inventory => inventory.id === entry.inventoryItemId); return <tr key={entry.id}><td>{item?.equipment ?? 'Item removido'}</td><td>{entry.quantity} {item?.unit.toLowerCase()}</td><td>{entry.assignedBy}</td><td>{entry.approvedAt ? new Date(entry.approvedAt).toLocaleString('pt-BR') : 'Registro anterior'}</td></tr> })}</tbody></table></div></section>}
+    <section className="approval-list">{pending.length ? pending.map(entry => <article className="surface approval-card" key={entry.id}><span><PackageCheck size={24} /></span><div><p className="eyebrow">Aguardando sua confirmação</p><h3>{entry.equipment}</h3><p>{entry.quantity} {entry.unit.toLowerCase()} · {entry.category} · código {entry.code}</p>{(entry.brand || entry.model) && <small>{[entry.brand, entry.model].filter(Boolean).join(' · ')}</small>}<small>Atribuído por {entry.assignedBy} em {new Date(entry.assignedAt).toLocaleString('pt-BR')}</small>{entry.notes && <small>Observação: {entry.notes}</small>}</div><button className="primary-button" onClick={() => approve(entry.id)}><CheckCircle2 size={18} /> Aprovar e confirmar retirada</button></article>) : <section className="surface empty-state"><ShieldCheck size={30} /><h3>Nenhuma aprovação pendente</h3><p>Quando um equipamento for atribuído a você, a solicitação aparecerá aqui.</p></section>}</section>
+    {approved.length > 0 && <section className="surface table-surface approval-history"><div className="table-toolbar"><div><p className="eyebrow">Histórico</p><h3>Equipamentos aprovados e retirados</h3></div></div><div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Código</th><th>Quantidade</th><th>Atribuído por</th><th>Aprovado e retirado em</th></tr></thead><tbody>{approved.map(entry => <tr key={entry.id}><td>{entry.equipment}</td><td>{entry.code}</td><td>{entry.quantity} {entry.unit.toLowerCase()}</td><td>{entry.assignedBy}</td><td>{entry.approvedAt ? new Date(entry.approvedAt).toLocaleString('pt-BR') : 'Registro anterior'}</td></tr>)}</tbody></table></div></section>}
   </>
 }
 

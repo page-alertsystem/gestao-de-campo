@@ -347,7 +347,7 @@ function StockPage({ section, data }: { section: Page; data: AppData }) {
       ? { title: 'EPIs', description: 'Acompanhe os equipamentos de proteção individual entregues e disponíveis.', filter: (category: string) => category === 'EPI' }
       : { title: 'Insumos', description: 'Acompanhe os materiais de consumo disponíveis e faça novas solicitações.', filter: (category: string) => category === 'Insumo' }
   const personalBalances = new Map<string, number>()
-  data.stockAssignments.filter(assignment => assignment.personId === data.account.id && assignment.status === 'Aprovado').forEach(assignment => personalBalances.set(assignment.inventoryItemId, (personalBalances.get(assignment.inventoryItemId) ?? 0) + assignment.quantity))
+  data.stockAssignments.filter(assignment => assignment.personId === data.account.id && assignment.status === 'Aprovado e retirado').forEach(assignment => personalBalances.set(assignment.inventoryItemId, (personalBalances.get(assignment.inventoryItemId) ?? 0) + assignment.quantity))
   data.materialUsages.filter(usage => usage.personId === data.account.id).forEach(usage => personalBalances.set(usage.inventoryItemId, (personalBalances.get(usage.inventoryItemId) ?? 0) - usage.quantity))
   const filteredItems = data.inventory.filter(item => config.filter(item.category) && (personalBalances.get(item.id) ?? 0) !== 0)
   const itemRows = filteredItems.map(item => [item.equipment, [item.brand, item.model].filter(Boolean).join(' ') || '—', item.unit, String(personalBalances.get(item.id) ?? 0), 'Atribuído'])

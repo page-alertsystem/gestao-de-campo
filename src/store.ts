@@ -5,7 +5,7 @@ export type TrajectoryRecord = { id: string; type: string; declaredDate: string;
 export type StockRequest = { id: string; code: string; createdAt: string; technician: string; client: string; status: string; items: number; author: string }
 export type KmRecord = { id: string; createdAt: string; vehicle: string; driver: string; mileage: number; destination: string; changeDriver: boolean; hasDamage: boolean; damages: { location: string; description: string }[]; latitude?: number; longitude?: number; accuracy?: number }
 export type InventoryItem = { id: string; equipment: string; brand: string; model: string; category: 'Insumo' | 'Ferramenta pessoal' | 'Ferramenta rotativa' | 'EPI'; unit: 'Unidade' | 'Caixa' | 'Metros' | 'Rolo'; quantity: number; minimum: number; code: string; notes: string }
-export type StockAssignment = { id: string; personId: string; inventoryItemId: string; quantity: number; assignedAt: string; assignedBy: string; notes: string; status: 'Pendente' | 'Aprovado'; approvedAt?: string }
+export type StockAssignment = { id: string; personId: string; inventoryItemId: string; equipment: string; brand: string; model: string; category: InventoryItem['category']; unit: InventoryItem['unit']; code: string; quantity: number; assignedAt: string; assignedBy: string; notes: string; status: 'Pendente' | 'Aprovado e retirado'; approvedAt?: string }
 export type MaterialUsage = { id: string; personId: string; inventoryItemId: string; quantity: number; declaredDate: string; usedAt: string; location: string; description: string }
 export type Notification = { id: string; title: string; detail: string; createdAt: string; read: boolean; critical: boolean }
 export type AdminAccount = { id: string; name: string; email: string; passwordHash: string; mustChangePassword: boolean }
@@ -72,7 +72,15 @@ export async function loadAppData(): Promise<AppData> {
   if (stored) return {
     ...stored,
     permissions: stored.permissions ?? [],
-    stockAssignments: (stored.stockAssignments ?? []).map(item => ({ ...item, status: item.status ?? 'Aprovado' })),
+    stockAssignments: (stored.stockAssignments ?? []).map(item => {
+      const inventoryItem = stored.inventory.find(entry => entry.id === item.inventoryItemId)
+      return {
+        ...item,
+        equipment: item.equipment ?? inventoryItem?.equipment ?? 'Equipamento', brand: item.brand ?? inventoryItem?.brand ?? '', model: item.model ?? inventoryItem?.model ?? '',
+        category: item.category ?? inventoryItem?.category ?? 'Insumo', unit: item.unit ?? inventoryItem?.unit ?? 'Unidade', code: item.code ?? inventoryItem?.code ?? 'SEM-CODIGO',
+        status: item.status === 'Pendente' ? 'Pendente' : 'Aprovado e retirado',
+      }
+    }),
     materialUsages: stored.materialUsages ?? [],
   }
   const account: AdminAccount = {
