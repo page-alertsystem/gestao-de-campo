@@ -9,16 +9,18 @@ import { KmForm } from './KmForm'
 import { StockRequestForm } from './StockRequestForm'
 import { StockManagement } from './StockManagement'
 import { MaterialUsagePage, StockApprovals } from './StockWorkflow'
+import { AuditPage, AuditWizard, type AuditStart } from './AuditModule'
 import { AdminCatalogs } from './AdminCatalogs'
 import { hashPassword, loadAppData, saveAppData, type AppData } from './store'
 
-type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'estoque-ferramentas' | 'estoque-insumos' | 'estoque-epis' | 'estoque-aprovacoes' | 'estoque-utilizados' | 'estoque-gestao' | 'relatorios' | 'configuracoes'
+type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'gestao-auditoria' | 'estoque-ferramentas' | 'estoque-insumos' | 'estoque-epis' | 'estoque-aprovacoes' | 'estoque-utilizados' | 'estoque-gestao' | 'relatorios' | 'configuracoes'
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
 
 const nav: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'inicio', label: 'Início', icon: Home },
   { id: 'operacao-dia', label: 'Operação', icon: Route },
+  { id: 'gestao-auditoria', label: 'Gestão', icon: ClipboardCheck },
   { id: 'estoque-insumos', label: 'Estoque', icon: Boxes },
   { id: 'relatorios', label: 'Relatórios', icon: FileBarChart },
   { id: 'configuracoes', label: 'Configurações', icon: Settings },
@@ -46,7 +48,11 @@ const stockPages: { id: Page; label: string; icon: ComponentType<{ size?: number
   { id: 'estoque-utilizados', label: 'Materiais utilizados', icon: ClipboardCheck },
   { id: 'estoque-gestao', label: 'Gestão', icon: Warehouse },
 ]
+const managementPages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
+  { id: 'gestao-auditoria', label: 'Auditoria', icon: ShieldCheck },
+]
 const isOperationPage = (page: Page) => page.startsWith('operacao-')
+const isManagementPage = (page: Page) => page.startsWith('gestao-')
 const isStockPage = (page: Page) => page.startsWith('estoque-')
 
 const todayInput = () => new Date().toISOString().slice(0, 10)
@@ -60,11 +66,13 @@ export default function App() {
   const [online, setOnline] = useState(navigator.onLine)
   const [drawer, setDrawer] = useState(false)
   const [operationOpen, setOperationOpen] = useState(false)
+  const [managementOpen, setManagementOpen] = useState(false)
   const [stockOpen, setStockOpen] = useState(false)
   const [activeAction, setActiveAction] = useState<ActionName | null>(null)
   const [permissionsOpen, setPermissionsOpen] = useState(false)
   const [kmOpen, setKmOpen] = useState(false)
   const [requestOpen, setRequestOpen] = useState(false)
+  const [activeAudit, setActiveAudit] = useState<AuditStart | null>(null)
   const [toast, setToast] = useState('')
   const [pendingSync, setPendingSync] = useState(0)
   const [activities, setActivities] = useState<{ title: string; detail: string; tone: string }[]>([])
@@ -102,6 +110,7 @@ export default function App() {
   const navigate = (next: Page) => {
     setPage(next)
     if (isOperationPage(next)) setOperationOpen(true)
+    if (isManagementPage(next)) setManagementOpen(true)
     if (isStockPage(next)) setStockOpen(true)
     setDrawer(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -140,7 +149,7 @@ export default function App() {
   const currentPerson = data.people.find(person => person.id === data.account.id)
   const canManageStock = currentPerson?.groups.some(group => group === 'Administrador' || group === 'Estoque') ?? false
   const visibleStockPages = stockPages.filter(item => item.id !== 'estoque-gestao' || canManageStock)
-  const title = operationPages.find(item => item.id === page)?.label ?? stockPages.find(item => item.id === page)?.label ?? nav.find(item => item.id === page)?.label ?? 'Início'
+  const title = operationPages.find(item => item.id === page)?.label ?? managementPages.find(item => item.id === page)?.label ?? stockPages.find(item => item.id === page)?.label ?? nav.find(item => item.id === page)?.label ?? 'Início'
 
   return <div className="app-shell">
     <aside className={drawer ? 'sidebar open' : 'sidebar'}>
@@ -156,6 +165,15 @@ export default function App() {
               <Icon size={20} /><span>{item.label}</span><ChevronDown className={operationOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
             </button>
             {operationOpen && <div className="nav-submenu">{operationPages.map(subitem => {
+              const SubIcon = subitem.icon
+              return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
+            })}</div>}
+          </div>
+          if (item.label === 'Gestão') return <div className="nav-group" key={item.id}>
+            <button className={isManagementPage(page) ? 'nav-item active' : 'nav-item'} onClick={() => setManagementOpen(current => !current)} aria-expanded={managementOpen}>
+              <Icon size={20} /><span>{item.label}</span><ChevronDown className={managementOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
+            </button>
+            {managementOpen && <div className="nav-submenu">{managementPages.map(subitem => {
               const SubIcon = subitem.icon
               return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
             })}</div>}
@@ -204,6 +222,7 @@ export default function App() {
         {toast && <div className="toast" role="status"><CheckCircle2 size={19} />{toast}</div>}
         {page === 'inicio' && <Dashboard data={data} activities={activities} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} onRequest={() => setRequestOpen(true)} />}
         {isOperationPage(page) && <OperationPage section={page} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
+        {page === 'gestao-auditoria' && <AuditPage data={data} onStart={setActiveAudit} />}
         {['estoque-ferramentas', 'estoque-insumos', 'estoque-epis'].includes(page) && <StockPage section={page} data={data} />}
         {page === 'estoque-aprovacoes' && <StockApprovals data={data} onChange={updateData} />}
         {page === 'estoque-utilizados' && <MaterialUsagePage data={data} onChange={updateData} />}
@@ -215,7 +234,7 @@ export default function App() {
       <nav className="mobile-nav" aria-label="Navegação móvel">
         {nav.map(item => {
           const Icon = item.icon
-          const active = item.label === 'Operação' ? isOperationPage(page) : item.label === 'Estoque' ? isStockPage(page) : page === item.id
+          const active = item.label === 'Operação' ? isOperationPage(page) : item.label === 'Gestão' ? isManagementPage(page) : item.label === 'Estoque' ? isStockPage(page) : page === item.id
           return <button key={item.id} className={active ? 'active' : ''} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label === 'Configurações' ? 'Mais' : item.label}</span></button>
         })}
       </nav>
@@ -225,6 +244,7 @@ export default function App() {
     {permissionsOpen && <div className="full-screen-layer"><PermissionMatrix initial={data.permissions} onClose={() => setPermissionsOpen(false)} onSaved={permissions => { updateData({ ...data, permissions }, 'Permissões atualizadas com sucesso.'); setPermissionsOpen(false) }} /></div>}
     {kmOpen && <KmForm vehicles={data.vehicles.filter(item => item.active)} driver={data.account.name} onClose={() => setKmOpen(false)} onComplete={record => { const next = { ...data, kmRecords: [...data.kmRecords, record], vehicles: data.vehicles.map(vehicle => vehicle.plate === record.vehicle ? { ...vehicle, mileage: record.mileage } : vehicle) }; updateData(next); setKmOpen(false); showToast('Relatório de KM registrado com sucesso.') }} />}
     {requestOpen && <StockRequestForm code={nextRequestCode(data)} people={data.people} clients={data.clients} onClose={() => setRequestOpen(false)} onComplete={request => { const next = { ...data, stockRequests: [...data.stockRequests, { id: crypto.randomUUID(), ...request, createdAt: new Date().toISOString(), status: 'Pedido recebido', author: data.account.name }] }; updateData(next); setRequestOpen(false); showToast(`Solicitação ${request.code} criada com sucesso.`) }} />}
+    {activeAudit && <AuditWizard data={data} start={activeAudit} onCancel={() => setActiveAudit(null)} onComplete={audit => { updateData({ ...data, audits: [...data.audits, audit] }, `Auditoria de ${audit.category} concluída.`); setActiveAudit(null) }} />}
   </div>
 }
 

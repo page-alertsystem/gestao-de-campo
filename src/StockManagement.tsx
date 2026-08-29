@@ -42,7 +42,7 @@ export function StockManagement({ data, onChange }: { data: AppData; onChange: (
       <div className="section-heading"><div><p className="eyebrow">Nova atribuição</p><h3>Vincular equipamento à pessoa</h3></div><PackageCheck size={22} /></div>
       <div className="simple-assignment-grid">
         <label className="wide">Pessoa<select value={form.personId} onChange={event => setForm({ ...form, personId: event.target.value })} required><option value="">Selecione uma pessoa</option>{activePeople.map(person => <option value={person.id} key={person.id}>{person.name} · {person.groups.join(', ')}</option>)}</select></label>
-        <label>Categoria<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value as InventoryItem['category'] })}><option>Ferramenta pessoal</option><option>Ferramenta rotativa</option><option>Insumo</option><option>EPI</option></select></label>
+        <label>Categoria<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value as InventoryItem['category'] })}><option>Ferramenta pessoal</option><option>Ferramenta rotativa</option><option>Insumo</option><option>EPI</option><option>Escada</option></select></label>
         <label>Equipamento<input value={form.equipment} onChange={event => setForm({ ...form, equipment: event.target.value })} placeholder="Nome do equipamento" required /></label>
         <label>Código do equipamento<input value={form.code} onChange={event => setForm({ ...form, code: event.target.value.toUpperCase() })} placeholder="Código ou identificação" required /></label>
         <label>Marca (opcional)<input value={form.brand} onChange={event => setForm({ ...form, brand: event.target.value })} /></label>

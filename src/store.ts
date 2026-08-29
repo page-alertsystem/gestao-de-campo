@@ -4,9 +4,12 @@ export type Vehicle = { id: string; plate: string; brand: string; model: string;
 export type TrajectoryRecord = { id: string; type: string; declaredDate: string; declaredTime: string; recordedAt: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number; author: string; pendingSync: boolean }
 export type StockRequest = { id: string; code: string; createdAt: string; technician: string; client: string; status: string; items: number; author: string }
 export type KmRecord = { id: string; createdAt: string; vehicle: string; driver: string; mileage: number; destination: string; changeDriver: boolean; hasDamage: boolean; damages: { location: string; description: string }[]; latitude?: number; longitude?: number; accuracy?: number }
-export type InventoryItem = { id: string; equipment: string; brand: string; model: string; category: 'Insumo' | 'Ferramenta pessoal' | 'Ferramenta rotativa' | 'EPI'; unit: 'Unidade' | 'Caixa' | 'Metros' | 'Rolo'; quantity: number; minimum: number; code: string; notes: string }
+export type InventoryItem = { id: string; equipment: string; brand: string; model: string; category: 'Insumo' | 'Ferramenta pessoal' | 'Ferramenta rotativa' | 'EPI' | 'Escada'; unit: 'Unidade' | 'Caixa' | 'Metros' | 'Rolo'; quantity: number; minimum: number; code: string; notes: string }
 export type StockAssignment = { id: string; personId: string; inventoryItemId: string; equipment: string; brand: string; model: string; category: InventoryItem['category']; unit: InventoryItem['unit']; code: string; quantity: number; assignedAt: string; assignedBy: string; notes: string; status: 'Pendente' | 'Aprovado e retirado'; approvedAt?: string }
 export type MaterialUsage = { id: string; personId: string; inventoryItemId: string; quantity: number; declaredDate: string; usedAt: string; location: string; description: string }
+export type AuditCategory = 'Ferramentas' | 'EPIs' | 'Escadas'
+export type AuditItemResult = { inventoryItemId: string; equipment: string; code: string; answers: { question: string; answer: boolean }[]; photo: string; approved: boolean }
+export type AuditRecord = { id: string; personId: string; category: AuditCategory; nextAuditDate: string; startedAt: string; completedAt: string; results: AuditItemResult[] }
 export type Notification = { id: string; title: string; detail: string; createdAt: string; read: boolean; critical: boolean }
 export type AdminAccount = { id: string; name: string; email: string; passwordHash: string; mustChangePassword: boolean }
 
@@ -21,6 +24,7 @@ export type AppData = {
   inventory: InventoryItem[]
   stockAssignments: StockAssignment[]
   materialUsages: MaterialUsage[]
+  audits: AuditRecord[]
   notifications: Notification[]
   permissions: string[]
 }
@@ -82,6 +86,7 @@ export async function loadAppData(): Promise<AppData> {
       }
     }),
     materialUsages: stored.materialUsages ?? [],
+    audits: stored.audits ?? [],
   }
   const account: AdminAccount = {
     id: crypto.randomUUID(),
@@ -93,7 +98,7 @@ export async function loadAppData(): Promise<AppData> {
   const initial: AppData = {
     account,
     people: [{ id: account.id, name: account.name, email: account.email, groups: ['Administrador'], active: true, canLogin: true }],
-    clients: [], vehicles: [], trajectories: [], stockRequests: [], kmRecords: [], inventory: [], stockAssignments: [], materialUsages: [], notifications: [], permissions: [],
+    clients: [], vehicles: [], trajectories: [], stockRequests: [], kmRecords: [], inventory: [], stockAssignments: [], materialUsages: [], audits: [], notifications: [], permissions: [],
   }
   await saveAppData(initial)
   return initial
