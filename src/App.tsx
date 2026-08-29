@@ -2,7 +2,7 @@ import { FormEvent, type ComponentType, type ReactNode, useEffect, useMemo, useS
 import {
   AlertTriangle, Bell, Boxes, CalendarClock, CarFront, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck,
   Download, FileBarChart, Home, LogOut, MapPin, Menu, PackageCheck, Plus, Route,
-  Search, Settings, ShieldCheck, Signal, SignalZero, Users, Warehouse, X,
+  Search, Settings, ShieldCheck, Signal, SignalZero, Users, Warehouse, Wrench, X,
 } from 'lucide-react'
 import { PermissionMatrix } from './PermissionMatrix'
 import { KmForm } from './KmForm'
@@ -10,14 +10,14 @@ import { StockRequestForm } from './StockRequestForm'
 import { AdminCatalogs } from './AdminCatalogs'
 import { hashPassword, loadAppData, saveAppData, type AppData } from './store'
 
-type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'estoque' | 'relatorios' | 'configuracoes'
+type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'estoque-ferramentas' | 'estoque-insumos' | 'estoque-epis' | 'relatorios' | 'configuracoes'
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
 
 const nav: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'inicio', label: 'Início', icon: Home },
   { id: 'operacao-dia', label: 'Operação', icon: Route },
-  { id: 'estoque', label: 'Estoque', icon: Boxes },
+  { id: 'estoque-insumos', label: 'Estoque', icon: Boxes },
   { id: 'relatorios', label: 'Relatórios', icon: FileBarChart },
   { id: 'configuracoes', label: 'Configurações', icon: Settings },
 ]
@@ -36,7 +36,13 @@ const operationPages: { id: Page; label: string; icon: ComponentType<{ size?: nu
   { id: 'operacao-dia', label: 'Registro do dia', icon: ClipboardCheck },
   { id: 'operacao-ponto', label: 'Esqueci meu ponto', icon: CalendarClock },
 ]
+const stockPages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
+  { id: 'estoque-ferramentas', label: 'Ferramentas', icon: Wrench },
+  { id: 'estoque-insumos', label: 'Insumos', icon: PackageCheck },
+  { id: 'estoque-epis', label: 'EPIs', icon: ShieldCheck },
+]
 const isOperationPage = (page: Page) => page.startsWith('operacao-')
+const isStockPage = (page: Page) => page.startsWith('estoque-')
 
 const todayInput = () => new Date().toISOString().slice(0, 10)
 const nowInput = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
@@ -49,6 +55,7 @@ export default function App() {
   const [online, setOnline] = useState(navigator.onLine)
   const [drawer, setDrawer] = useState(false)
   const [operationOpen, setOperationOpen] = useState(false)
+  const [stockOpen, setStockOpen] = useState(false)
   const [activeAction, setActiveAction] = useState<ActionName | null>(null)
   const [permissionsOpen, setPermissionsOpen] = useState(false)
   const [kmOpen, setKmOpen] = useState(false)
@@ -90,6 +97,7 @@ export default function App() {
   const navigate = (next: Page) => {
     setPage(next)
     if (isOperationPage(next)) setOperationOpen(true)
+    if (isStockPage(next)) setStockOpen(true)
     setDrawer(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -124,7 +132,7 @@ export default function App() {
     updateData(next)
   }} onSignOut={signOut} />
 
-  const title = operationPages.find(item => item.id === page)?.label ?? nav.find(item => item.id === page)?.label ?? 'Início'
+  const title = operationPages.find(item => item.id === page)?.label ?? stockPages.find(item => item.id === page)?.label ?? nav.find(item => item.id === page)?.label ?? 'Início'
 
   return <div className="app-shell">
     <aside className={drawer ? 'sidebar open' : 'sidebar'}>
@@ -140,6 +148,15 @@ export default function App() {
               <Icon size={20} /><span>{item.label}</span><ChevronDown className={operationOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
             </button>
             {operationOpen && <div className="nav-submenu">{operationPages.map(subitem => {
+              const SubIcon = subitem.icon
+              return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
+            })}</div>}
+          </div>
+          if (item.label === 'Estoque') return <div className="nav-group" key={item.id}>
+            <button className={isStockPage(page) ? 'nav-item active' : 'nav-item'} onClick={() => setStockOpen(current => !current)} aria-expanded={stockOpen}>
+              <Icon size={20} /><span>{item.label}</span><ChevronDown className={stockOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
+            </button>
+            {stockOpen && <div className="nav-submenu">{stockPages.map(subitem => {
               const SubIcon = subitem.icon
               return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
             })}</div>}
@@ -179,7 +196,7 @@ export default function App() {
         {toast && <div className="toast" role="status"><CheckCircle2 size={19} />{toast}</div>}
         {page === 'inicio' && <Dashboard data={data} activities={activities} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} onRequest={() => setRequestOpen(true)} />}
         {isOperationPage(page) && <OperationPage section={page} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
-        {page === 'estoque' && <StockPage data={data} onRequest={() => setRequestOpen(true)} />}
+        {isStockPage(page) && <StockPage section={page} data={data} onRequest={() => setRequestOpen(true)} />}
         {page === 'relatorios' && <ReportsPage data={data} />}
         {page === 'configuracoes' && <SettingsPage data={data} onChange={updateData} onOpenPermissions={() => setPermissionsOpen(true)} />}
       </main>
@@ -187,7 +204,8 @@ export default function App() {
       <nav className="mobile-nav" aria-label="Navegação móvel">
         {nav.map(item => {
           const Icon = item.icon
-          return <button key={item.id} className={(item.label === 'Operação' ? isOperationPage(page) : page === item.id) ? 'active' : ''} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label === 'Configurações' ? 'Mais' : item.label}</span></button>
+          const active = item.label === 'Operação' ? isOperationPage(page) : item.label === 'Estoque' ? isStockPage(page) : page === item.id
+          return <button key={item.id} className={active ? 'active' : ''} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label === 'Configurações' ? 'Mais' : item.label}</span></button>
         })}
       </nav>
     </div>
@@ -259,9 +277,9 @@ function Dashboard({ data, activities, onAction, onNavigate, onKm, onRequest }: 
     </section>
 
     <section className="attention-grid">
-      <button className="attention-card critical" onClick={() => onNavigate('estoque')}><span><AlertTriangle size={21} /></span><div><b>{data.inventory.filter(item => item.quantity < 0).length}</b><small>Itens com saldo negativo</small></div><ChevronRight size={19} /></button>
+      <button className="attention-card critical" onClick={() => onNavigate('estoque-insumos')}><span><AlertTriangle size={21} /></span><div><b>{data.inventory.filter(item => item.quantity < 0).length}</b><small>Itens com saldo negativo</small></div><ChevronRight size={19} /></button>
       <button className="attention-card warning"><span><CalendarClock size={21} /></span><div><b>0</b><small>Auditorias próximas</small></div><ChevronRight size={19} /></button>
-      <button className="attention-card neutral" onClick={() => onNavigate('estoque')}><span><PackageCheck size={21} /></span><div><b>{data.stockRequests.filter(item => item.status !== 'Entregue').length}</b><small>Pedidos em andamento</small></div><ChevronRight size={19} /></button>
+      <button className="attention-card neutral" onClick={() => onNavigate('estoque-insumos')}><span><PackageCheck size={21} /></span><div><b>{data.stockRequests.filter(item => item.status !== 'Entregue').length}</b><small>Pedidos em andamento</small></div><ChevronRight size={19} /></button>
       <button className="attention-card success"><span><ClipboardCheck size={21} /></span><div><b>{data.trajectories.filter(item => item.declaredDate === todayInput()).length + data.kmRecords.length}</b><small>Registros realizados hoje</small></div><ChevronRight size={19} /></button>
     </section>
 
@@ -311,13 +329,18 @@ function OperationPage({ section, data, onAction, onKm }: { section: Page; data:
   </>
 }
 
-function StockPage({ data, onRequest }: { data: AppData; onRequest: () => void }) {
-  const itemRows = data.inventory.map(item => [item.equipment, [item.brand, item.model].filter(Boolean).join(' ') || '—', item.unit, String(item.quantity), item.quantity < 0 ? 'Saldo negativo' : item.quantity <= item.minimum ? 'Estoque mínimo' : 'Disponível'])
+function StockPage({ section, data, onRequest }: { section: Page; data: AppData; onRequest: () => void }) {
+  const config = section === 'estoque-ferramentas'
+    ? { title: 'Ferramentas', description: 'Consulte as ferramentas pessoais e demais ferramentas sob sua responsabilidade.', filter: (category: string) => category.includes('Ferramenta') }
+    : section === 'estoque-epis'
+      ? { title: 'EPIs', description: 'Acompanhe os equipamentos de proteção individual entregues e disponíveis.', filter: (category: string) => category === 'EPI' }
+      : { title: 'Insumos', description: 'Acompanhe os materiais de consumo disponíveis e faça novas solicitações.', filter: (category: string) => category === 'Insumo' }
+  const filteredItems = data.inventory.filter(item => config.filter(item.category))
+  const itemRows = filteredItems.map(item => [item.equipment, [item.brand, item.model].filter(Boolean).join(' ') || '—', item.unit, String(item.quantity), item.quantity < 0 ? 'Saldo negativo' : item.quantity <= item.minimum ? 'Estoque mínimo' : 'Disponível'])
   return <>
-    <PageIntro eyebrow="Responsabilidade do técnico" title="Estoque do técnico" description="Acompanhe materiais, ferramentas pessoais, rotativas e EPIs sob sua responsabilidade." action={<button className="primary-button" onClick={onRequest}><Plus size={18} /> Nova solicitação</button>} />
-    <section className="stock-tabs"><button className="active">Insumos <span>{data.inventory.filter(item => item.category === 'Insumo').length}</span></button><button>Ferramentas <span>{data.inventory.filter(item => item.category.includes('Ferramenta')).length}</span></button><button>EPIs <span>{data.inventory.filter(item => item.category === 'EPI').length}</span></button></section>
-    <section className="attention-grid stock-summary"><Metric icon={Warehouse} value={String(data.inventory.length)} label="Itens cadastrados" /><Metric icon={PackageCheck} value={String(data.stockRequests.filter(item => item.status !== 'Entregue').length)} label="Pedidos em andamento" /><Metric icon={AlertTriangle} value={String(data.inventory.filter(item => item.quantity < 0).length)} label="Saldo negativo" tone="critical" /></section>
-    <section className="surface table-surface"><div className="table-toolbar"><div><p className="eyebrow">Estoque</p><h3>Materiais cadastrados</h3></div><label className="search-field"><Search size={17} /><input placeholder="Buscar equipamento" /></label></div><div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Marca / modelo</th><th>Unidade</th><th>Disponível</th><th>Status</th></tr></thead><tbody>{itemRows.length ? itemRows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}>{column === 4 ? <span className={`status ${cell === 'Saldo negativo' ? 'danger' : cell === 'Estoque mínimo' ? 'warning' : 'success'}`}>{cell}</span> : cell}</td>)}</tr>) : <tr><td colSpan={5} className="table-empty">Cadastre os primeiros itens em Configurações.</td></tr>}</tbody></table></div></section>
+    <PageIntro eyebrow="Estoque do técnico" title={config.title} description={config.description} action={<button className="primary-button" onClick={onRequest}><Plus size={18} /> Nova solicitação</button>} />
+    <section className="attention-grid stock-summary"><Metric icon={Warehouse} value={String(filteredItems.length)} label={`Itens em ${config.title.toLowerCase()}`} /><Metric icon={PackageCheck} value={String(data.stockRequests.filter(item => item.status !== 'Entregue').length)} label="Pedidos em andamento" /><Metric icon={AlertTriangle} value={String(filteredItems.filter(item => item.quantity < 0).length)} label="Saldo negativo" tone="critical" /></section>
+    <section className="surface table-surface"><div className="table-toolbar"><div><p className="eyebrow">Estoque</p><h3>{config.title} cadastrados</h3></div><label className="search-field"><Search size={17} /><input placeholder={`Buscar em ${config.title.toLowerCase()}`} /></label></div><div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Marca / modelo</th><th>Unidade</th><th>Disponível</th><th>Status</th></tr></thead><tbody>{itemRows.length ? itemRows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}>{column === 4 ? <span className={`status ${cell === 'Saldo negativo' ? 'danger' : cell === 'Estoque mínimo' ? 'warning' : 'success'}`}>{cell}</span> : cell}</td>)}</tr>) : <tr><td colSpan={5} className="table-empty">Nenhum item desta categoria foi cadastrado.</td></tr>}</tbody></table></div></section>
   </>
 }
 
