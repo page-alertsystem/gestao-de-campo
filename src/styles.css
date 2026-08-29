@@ -26,3 +26,7 @@
 @media(max-width:1000px){.catalog-layout{grid-template-columns:1fr}.catalog-form{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:700px){.catalog-form{grid-template-columns:1fr 1fr}.brand-logo-card{width:100px}.mobile-login-brand span.login-logo{width:140px}}
 @media(max-width:520px){.catalog-form{grid-template-columns:1fr}.catalog-form .wide,.catalog-form .inline-check{grid-column:auto}.catalog-toolbar{justify-content:stretch}.catalog-toolbar .search-field{width:100%}}
+
+/* Gestão do estoque individual */
+.stock-management-grid{display:grid;grid-template-columns:minmax(300px,.65fr) minmax(0,1.35fr);gap:16px}.assignment-form{display:grid;gap:13px;align-content:start}.assignment-form label{display:grid;gap:6px;font-size:11px;font-weight:700;color:#44494c}.assignment-form select,.assignment-form input,.assignment-form textarea{border:1px solid #cfd3d5;border-radius:10px;padding:11px 12px;background:#fff;outline:none;width:100%}.assignment-form select:focus,.assignment-form input:focus,.assignment-form textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(245,130,0,.12)}.assignment-form textarea{min-height:82px;resize:vertical}.assignment-warning{margin:0;display:flex;align-items:flex-start;gap:7px;border-radius:9px;padding:10px;background:#fff0db;color:#8b540c;font-size:10px;line-height:1.4}.assignment-warning svg{flex:none}.user-stock-card{padding:0;overflow:hidden}.user-stock-card .section-heading{padding:20px;margin:0}.assignment-history{margin-top:16px}
+@media(max-width:900px){.stock-management-grid{grid-template-columns:1fr}}
