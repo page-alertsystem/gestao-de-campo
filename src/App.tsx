@@ -350,11 +350,17 @@ function StockPage({ section, data }: { section: Page; data: AppData }) {
   data.stockAssignments.filter(assignment => assignment.personId === data.account.id && assignment.status === 'Aprovado e retirado').forEach(assignment => personalBalances.set(assignment.inventoryItemId, (personalBalances.get(assignment.inventoryItemId) ?? 0) + assignment.quantity))
   data.materialUsages.filter(usage => usage.personId === data.account.id).forEach(usage => personalBalances.set(usage.inventoryItemId, (personalBalances.get(usage.inventoryItemId) ?? 0) - usage.quantity))
   const filteredItems = data.inventory.filter(item => config.filter(item.category) && (personalBalances.get(item.id) ?? 0) !== 0)
-  const itemRows = filteredItems.map(item => [item.equipment, [item.brand, item.model].filter(Boolean).join(' ') || '—', item.unit, String(personalBalances.get(item.id) ?? 0), 'Atribuído'])
+  const renderStockTable = (title: string, items: typeof filteredItems, secondary = false) => {
+    const rows = items.map(item => [item.equipment, [item.brand, item.model].filter(Boolean).join(' ') || '—', item.unit, String(personalBalances.get(item.id) ?? 0), 'Atribuído'])
+    return <section className={secondary ? 'surface table-surface stock-secondary-table' : 'surface table-surface'}><div className="table-toolbar"><div><p className="eyebrow">Estoque individual</p><h3>{title}</h3></div><label className="search-field"><Search size={17} /><input placeholder="Buscar equipamento" /></label></div><div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Marca / modelo</th><th>Unidade</th><th>Quantidade</th><th>Status</th></tr></thead><tbody>{rows.length ? rows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}>{column === 4 ? <span className="status success">{cell}</span> : cell}</td>)}</tr>) : <tr><td colSpan={5} className="table-empty">Nenhum item deste tipo foi atribuído a você.</td></tr>}</tbody></table></div></section>
+  }
   return <>
     <PageIntro eyebrow="Meu estoque" title={config.title} description={config.description} />
     <section className="attention-grid stock-summary"><Metric icon={Warehouse} value={String(filteredItems.length)} label={`Tipos de ${config.title.toLowerCase()}`} /><Metric icon={PackageCheck} value={String(data.stockRequests.filter(item => item.status !== 'Entregue').length)} label="Pedidos em andamento" /><Metric icon={Boxes} value={String(filteredItems.reduce((total, item) => total + (personalBalances.get(item.id) ?? 0), 0))} label="Quantidade atribuída" /></section>
-    <section className="surface table-surface"><div className="table-toolbar"><div><p className="eyebrow">Estoque individual</p><h3>{config.title} atribuídos a você</h3></div><label className="search-field"><Search size={17} /><input placeholder={`Buscar em ${config.title.toLowerCase()}`} /></label></div><div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Marca / modelo</th><th>Unidade</th><th>Quantidade</th><th>Status</th></tr></thead><tbody>{itemRows.length ? itemRows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}>{column === 4 ? <span className="status success">{cell}</span> : cell}</td>)}</tr>) : <tr><td colSpan={5} className="table-empty">Nenhum item desta categoria foi atribuído a você.</td></tr>}</tbody></table></div></section>
+    {section === 'estoque-ferramentas' ? <>
+      {renderStockTable('Ferramentas atribuídas a você', filteredItems.filter(item => item.category === 'Ferramenta pessoal'))}
+      {renderStockTable('Ferramentas rotativas atribuídas a você', filteredItems.filter(item => item.category === 'Ferramenta rotativa'), true)}
+    </> : renderStockTable(`${config.title} atribuídos a você`, filteredItems)}
   </>
 }
 
