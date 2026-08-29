@@ -1,6 +1,8 @@
-import { ChangeEvent, useState } from 'react'
-import { CalendarDays, Camera, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, ListChecks, ShieldCheck, Wrench, X } from 'lucide-react'
+import { ChangeEvent, FormEvent, PointerEvent as ReactPointerEvent, useRef, useState } from 'react'
+import { AlertTriangle, CalendarDays, Camera, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, FileDown, ListChecks, LockKeyhole, PenLine, ShieldCheck, UserCheck, Wrench, X } from 'lucide-react'
+import { jsPDF } from 'jspdf'
 import type { AppData, AuditCategory, AuditItemResult, AuditRecord, InventoryItem } from './store'
+import { hashPassword } from './store'
 
 const commonQuestions = [
   'O item está funcionando corretamente?',
@@ -85,11 +87,12 @@ export function AuditPage({ data, onStart }: { data: AppData; onStart: (start: A
   </>
 }
 
-export function AuditWizard({ start, onCancel, onComplete }: { start: AuditStart; onCancel: () => void; onComplete: (audit: AuditRecord) => void }) {
+export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppData; start: AuditStart; onCancel: () => void; onComplete: (audit: AuditRecord) => void }) {
   const [index, setIndex] = useState(0)
   const [results, setResults] = useState<AuditItemResult[]>([])
   const [answers, setAnswers] = useState<Record<number, boolean>>({})
   const [photo, setPhoto] = useState('')
+  const [closingResults, setClosingResults] = useState<AuditItemResult[] | null>(null)
   const item = start.items[index]
   const questions = start.category === 'Escadas' ? ladderQuestions : commonQuestions
   const complete = Object.keys(answers).length === questions.length && Boolean(photo)
@@ -107,12 +110,13 @@ export function AuditWizard({ start, onCancel, onComplete }: { start: AuditStart
     const result: AuditItemResult = { inventoryItemId: item.id, equipment: item.equipment, code: item.code, answers: questions.map((question, questionIndex) => ({ question, answer: answers[questionIndex] })), photo, approved: answers[questions.length - 1] === true }
     const nextResults = [...results, result]
     if (index === start.items.length - 1) {
-      const completedAt = new Date()
-      onComplete({ id: crypto.randomUUID(), personId: start.personId, category: start.category, nextAuditDate: start.category === 'Escadas' ? oneWeekAfter(completedAt) : oneMonthAfter(completedAt), startedAt: start.startedAt, completedAt: completedAt.toISOString(), results: nextResults })
+      setClosingResults(nextResults)
       return
     }
     setResults(nextResults); setIndex(current => current + 1); setAnswers({}); setPhoto('')
   }
+
+  if (closingResults) return <AuditFinalization data={data} start={start} results={closingResults} onCancel={onCancel} onComplete={onComplete} />
 
   return <div className="full-screen-layer audit-wizard-layer">
     <header className="form-page-header"><div><p className="eyebrow">Auditoria de {start.category} · {start.personName}</p><h2>{item.equipment}</h2><p>Item {index + 1} de {start.items.length} · código {item.code || 'não informado'}</p></div><button className="icon-button" onClick={onCancel} aria-label="Fechar auditoria"><X size={22} /></button></header>
@@ -124,4 +128,153 @@ export function AuditWizard({ start, onCancel, onComplete }: { start: AuditStart
     </main>
     <footer className="audit-wizard-footer"><button className="secondary-button" disabled={index === 0} onClick={() => { const previous = results[index - 1]; if (!previous) return; setIndex(current => current - 1); setResults(current => current.slice(0, -1)); setAnswers(Object.fromEntries(previous.answers.map((answer, answerIndex) => [answerIndex, answer.answer]))); setPhoto(previous.photo) }}><ChevronLeft size={18} /> Anterior</button><p>{Object.keys(answers).length} de {questions.length} respostas · {photo ? 'foto pronta' : 'foto pendente'}</p><button className="primary-button" disabled={!complete} onClick={next}>{index === start.items.length - 1 ? <><CheckCircle2 size={18} /> Concluir auditoria</> : <>Próximo equipamento <ChevronRight size={18} /></>}</button></footer>
   </div>
+}
+
+function AuditFinalization({ data, start, results, onCancel, onComplete }: { data: AppData; start: AuditStart; results: AuditItemResult[]; onCancel: () => void; onComplete: (audit: AuditRecord) => void }) {
+  const [stage, setStage] = useState<'auditor' | 'audited'>('auditor')
+  const [password, setPassword] = useState('')
+  const [auditorSignature, setAuditorSignature] = useState<string | null>(null)
+  const [auditedSignature, setAuditedSignature] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const [generating, setGenerating] = useState(false)
+
+  const confirmAuditor = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!auditorSignature) { setError('A assinatura do auditor é obrigatória.'); return }
+    if (await hashPassword(password) !== data.account.passwordHash) { setError('A senha informada não corresponde ao usuário conectado.'); return }
+    setError(''); setStage('audited')
+  }
+
+  const finish = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!auditedSignature) { setError('A assinatura da pessoa auditada é obrigatória.'); return }
+    setGenerating(true); setError('')
+    const completedAt = new Date()
+    const nextAuditDate = start.category === 'Escadas' ? oneWeekAfter(completedAt) : oneMonthAfter(completedAt)
+    const safeName = start.personName.replace(/[^a-zA-ZÀ-ÿ0-9]+/g, ' ').trim().replace(/\s+/g, '-')
+    const pdfFileName = `Relatório de Auditoria - ${start.category} - ${safeName} - ${todayDate()}.pdf`
+    const fullRecord: AuditRecord = { id: crypto.randomUUID(), personId: start.personId, category: start.category, auditorName: data.account.name, auditedName: start.personName, nextAuditDate, startedAt: start.startedAt, completedAt: completedAt.toISOString(), pdfFileName, results }
+    try {
+      await createAuditPdf(fullRecord, auditorSignature, auditedSignature)
+      onComplete({ ...fullRecord, results: results.map(result => ({ ...result, photo: '' })) })
+    } catch {
+      setError('Não foi possível gerar o PDF. Tente novamente.'); setGenerating(false)
+    }
+  }
+
+  return <div className="full-screen-layer audit-signature-layer">
+    <header className="form-page-header"><div><p className="eyebrow">Finalização da auditoria</p><h2>{stage === 'auditor' ? 'Confirmação do auditor' : 'Assinatura da pessoa auditada'}</h2><p>Etapa {stage === 'auditor' ? '1' : '2'} de 2 · {start.category}</p></div><button className="icon-button" onClick={onCancel} aria-label="Cancelar finalização"><X size={22} /></button></header>
+    <div className="signature-steps"><span className="active">1</span><i className={stage === 'audited' ? 'active' : ''} /><span className={stage === 'audited' ? 'active' : ''}>2</span><small>Auditor</small><small>Auditado</small></div>
+    {stage === 'auditor' ? <form className="audit-signature-content" onSubmit={confirmAuditor}>
+      <section className="surface audit-signature-card"><div className="section-heading"><div><p className="eyebrow">Usuário conectado</p><h3>Confirme sua identidade</h3></div><LockKeyhole size={22} /></div><div className="audit-parties"><div><span>Auditor</span><b>{data.account.name}</b></div><div><span>Pessoa auditada</span><b>{start.personName}</b></div></div><label className="audit-password-field">Senha do auditor<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required placeholder="Digite sua senha de acesso" /></label></section>
+      <section className="surface audit-signature-card"><div className="section-heading"><div><p className="eyebrow">Assinatura obrigatória</p><h3>Assinatura do auditor</h3></div><PenLine size={22} /></div><SignaturePad label={`Assinatura de ${data.account.name}`} onChange={setAuditorSignature} /></section>
+      {error && <p className="audit-final-error"><AlertTriangle size={17} />{error}</p>}
+      <div className="audit-final-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancelar</button><button className="primary-button">Validar e continuar <ChevronRight size={18} /></button></div>
+    </form> : <form className="audit-signature-content" onSubmit={finish}>
+      <section className="surface audit-signature-card"><div className="section-heading"><div><p className="eyebrow">Identidade do auditor validada</p><h3>{data.account.name}</h3></div><CheckCircle2 size={22} /></div><p className="signature-instruction">Agora entregue o celular para <b>{start.personName}</b> conferir e assinar.</p></section>
+      <section className="surface audit-signature-card"><div className="section-heading"><div><p className="eyebrow">Assinatura obrigatória</p><h3>Assinatura de {start.personName}</h3></div><UserCheck size={22} /></div><SignaturePad label={`Assinatura de ${start.personName}`} onChange={setAuditedSignature} /></section>
+      {error && <p className="audit-final-error"><AlertTriangle size={17} />{error}</p>}
+      <div className="audit-final-actions"><button type="button" className="secondary-button" disabled={generating} onClick={() => { setStage('auditor'); setError('') }}><ChevronLeft size={18} /> Voltar</button><button className="primary-button" disabled={generating}>{generating ? 'Gerando relatório...' : <><FileDown size={18} /> Finalizar e salvar PDF</>}</button></div>
+    </form>}
+  </div>
+}
+
+function SignaturePad({ label, onChange }: { label: string; onChange: (signature: string | null) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const drawing = useRef(false)
+  const point = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current!
+    const rect = canvas.getBoundingClientRect()
+    return { x: (event.clientX - rect.left) * (canvas.width / rect.width), y: (event.clientY - rect.top) * (canvas.height / rect.height) }
+  }
+  const start = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    drawing.current = true
+    canvasRef.current!.setPointerCapture(event.pointerId)
+    const context = canvasRef.current!.getContext('2d')!
+    const current = point(event)
+    context.beginPath(); context.moveTo(current.x, current.y)
+  }
+  const move = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (!drawing.current) return
+    const context = canvasRef.current!.getContext('2d')!
+    const current = point(event)
+    context.lineWidth = 2.4; context.lineCap = 'round'; context.strokeStyle = '#242729'; context.lineTo(current.x, current.y); context.stroke()
+  }
+  const stop = () => { if (drawing.current) onChange(canvasRef.current!.toDataURL('image/png')); drawing.current = false }
+  const clear = () => { const canvas = canvasRef.current!; canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height); onChange(null) }
+  return <div className="signature-wrap audit-signature-pad"><canvas ref={canvasRef} width="900" height="230" onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} /><span>{label} — assine com o dedo dentro da área</span><button type="button" onClick={clear}>Limpar assinatura</button></div>
+}
+
+async function createAuditPdf(record: AuditRecord, auditorSignature: string, auditedSignature: string) {
+  const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
+  let logo = ''
+  try { logo = await fetch('/alert-logo.png').then(response => response.blob()).then(blobToDataUrl) } catch { /* O título mantém o documento identificável. */ }
+  const header = (title: string, subtitle: string) => {
+    if (logo) pdf.addImage(logo, 'PNG', 15, 10, 44, 22)
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); pdf.setTextColor(48, 51, 54); pdf.text(title, 15, 42)
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(112, 117, 122); pdf.text(subtitle, 15, 48)
+    pdf.setDrawColor(245, 130, 0); pdf.setLineWidth(1); pdf.line(15, 53, 195, 53)
+  }
+
+  const approved = record.results.filter(result => result.approved).length
+  header(`Relatório de Auditoria de ${record.category}`, 'GIO — Gestão Integrada de Operações')
+  const summary = [
+    ['Auditor', record.auditorName], ['Pessoa auditada', record.auditedName],
+    ['Início', new Date(record.startedAt).toLocaleString('pt-BR')], ['Conclusão', new Date(record.completedAt).toLocaleString('pt-BR')],
+    ['Próxima auditoria', new Date(`${record.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR')],
+    ['Resultado geral', approved === record.results.length ? 'Aprovada' : 'Com ressalvas'],
+    ['Equipamentos aprovados', `${approved} de ${record.results.length}`],
+  ]
+  let y = 66
+  pdf.setFontSize(10)
+  summary.forEach(([label, value]) => { pdf.setFont('helvetica', 'bold'); pdf.setTextColor(70, 73, 76); pdf.text(`${label}:`, 15, y); pdf.setFont('helvetica', 'normal'); pdf.text(value, 57, y); y += 9 })
+  y += 5
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.text('Resumo dos equipamentos', 15, y); y += 8
+  record.results.forEach((result, index) => {
+    if (y > 276) { pdf.addPage(); header('Resumo dos equipamentos', `${record.auditedName} · continuação`); y = 65 }
+    pdf.setFontSize(9); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(48, 51, 54); pdf.text(`${index + 1}. ${result.equipment}`, 15, y)
+    pdf.setFont('helvetica', 'normal'); pdf.setTextColor(result.approved ? 35 : 157, result.approved ? 107 : 51, result.approved ? 58 : 46); pdf.text(result.approved ? 'APROVADO' : 'NÃO APROVADO', 155, y); y += 8
+  })
+
+  record.results.forEach((result, itemIndex) => {
+    pdf.addPage(); header(`${itemIndex + 1}. ${result.equipment}`, `Código ${result.code || 'não informado'} · ${result.approved ? 'Aprovado' : 'Não aprovado'}`)
+    let questionY = 65
+    pdf.setFontSize(8)
+    result.answers.forEach((answer, answerIndex) => {
+      const lines = pdf.splitTextToSize(`${answerIndex + 1}. ${answer.question}`, 92) as string[]
+      pdf.setFont('helvetica', 'normal'); pdf.setTextColor(55, 58, 60); pdf.text(lines, 15, questionY)
+      pdf.setFont('helvetica', 'bold'); pdf.setTextColor(answer.answer ? 35 : 157, answer.answer ? 107 : 51, answer.answer ? 58 : 46); pdf.text(answer.answer ? 'SIM' : 'NÃO', 106, questionY)
+      questionY += Math.max(9, lines.length * 4 + 4)
+    })
+    if (result.photo) {
+      pdf.setFont('helvetica', 'bold'); pdf.setTextColor(70, 73, 76); pdf.text('Evidência fotográfica', 121, 64)
+      addContainedImage(pdf, result.photo, 121, 70, 74, 82)
+    }
+  })
+
+  pdf.addPage(); header('Assinaturas e confirmação', `${record.category} · ${record.auditedName}`)
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(10); pdf.setTextColor(55, 58, 60); pdf.text(`Auditor: ${record.auditorName}`, 15, 66)
+  pdf.addImage(auditorSignature, 'PNG', 15, 72, 82, 30); pdf.setDrawColor(120, 124, 126); pdf.line(15, 104, 97, 104)
+  pdf.text(`Pessoa auditada: ${record.auditedName}`, 15, 128)
+  pdf.addImage(auditedSignature, 'PNG', 15, 134, 82, 30); pdf.line(15, 166, 97, 166)
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(112, 117, 122)
+  pdf.text(`Documento gerado em ${new Date(record.completedAt).toLocaleString('pt-BR')}.`, 15, 184)
+  pdf.text('As assinaturas confirmam a realização da auditoria e o conhecimento dos resultados registrados.', 15, 191)
+  pdf.save(record.pdfFileName)
+}
+
+function addContainedImage(pdf: jsPDF, dataUrl: string, x: number, y: number, maxWidth: number, maxHeight: number) {
+  const properties = pdf.getImageProperties(dataUrl)
+  const scale = Math.min(maxWidth / properties.width, maxHeight / properties.height)
+  const width = properties.width * scale
+  const height = properties.height * scale
+  const format = dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG'
+  pdf.addImage(dataUrl, format, x + (maxWidth - width) / 2, y + (maxHeight - height) / 2, width, height)
+}
+
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(blob)
+  })
 }

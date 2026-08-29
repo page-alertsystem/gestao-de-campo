@@ -9,7 +9,7 @@ export type StockAssignment = { id: string; personId: string; inventoryItemId: s
 export type MaterialUsage = { id: string; personId: string; inventoryItemId: string; quantity: number; declaredDate: string; usedAt: string; location: string; description: string }
 export type AuditCategory = 'Ferramentas' | 'EPIs' | 'Escadas'
 export type AuditItemResult = { inventoryItemId: string; equipment: string; code: string; answers: { question: string; answer: boolean }[]; photo: string; approved: boolean }
-export type AuditRecord = { id: string; personId: string; category: AuditCategory; nextAuditDate: string; startedAt: string; completedAt: string; results: AuditItemResult[] }
+export type AuditRecord = { id: string; personId: string; category: AuditCategory; auditorName: string; auditedName: string; nextAuditDate: string; startedAt: string; completedAt: string; pdfFileName: string; results: AuditItemResult[] }
 export type Notification = { id: string; title: string; detail: string; createdAt: string; read: boolean; critical: boolean }
 export type AdminAccount = { id: string; name: string; email: string; passwordHash: string; mustChangePassword: boolean }
 
@@ -86,7 +86,7 @@ export async function loadAppData(): Promise<AppData> {
       }
     }),
     materialUsages: stored.materialUsages ?? [],
-    audits: stored.audits ?? [],
+    audits: (stored.audits ?? []).map(audit => ({ ...audit, auditorName: audit.auditorName ?? stored.account.name, auditedName: audit.auditedName ?? stored.people.find(person => person.id === audit.personId)?.name ?? 'Pessoa auditada', pdfFileName: audit.pdfFileName ?? 'Relatório anterior' })),
   }
   const account: AdminAccount = {
     id: crypto.randomUUID(),
