@@ -42,12 +42,17 @@ function oneMonthAfter(date: Date) {
   const next = new Date(date.getFullYear(), date.getMonth() + 1, Math.min(date.getDate(), lastDayOfNextMonth))
   return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`
 }
+function oneWeekAfter(date: Date) {
+  const next = new Date(date)
+  next.setDate(next.getDate() + 7)
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`
+}
 
 export function AuditPage({ data, onStart }: { data: AppData; onStart: (start: AuditStart) => void }) {
   const categories: { id: AuditCategory; label: string; description: string; icon: typeof Wrench }[] = [
-    { id: 'Ferramentas', label: 'Ferramentas', description: 'Condição, funcionamento e segurança das ferramentas.', icon: Wrench },
-    { id: 'EPIs', label: 'EPIs', description: 'Conservação e aprovação dos equipamentos de proteção.', icon: ShieldCheck },
-    { id: 'Escadas', label: 'Escadas', description: 'Estabilidade, degraus, fixações e travas de segurança.', icon: ListChecks },
+    { id: 'Ferramentas', label: 'Ferramentas', description: 'Auditoria mensal de funcionamento e segurança.', icon: Wrench },
+    { id: 'EPIs', label: 'EPIs', description: 'Auditoria mensal de conservação e aprovação.', icon: ShieldCheck },
+    { id: 'Escadas', label: 'Escadas', description: 'Auditoria semanal de estabilidade, degraus e fixações.', icon: ListChecks },
   ]
   const [category, setCategory] = useState<AuditCategory>('Ferramentas')
   const [personId, setPersonId] = useState('')
@@ -103,7 +108,7 @@ export function AuditWizard({ start, onCancel, onComplete }: { start: AuditStart
     const nextResults = [...results, result]
     if (index === start.items.length - 1) {
       const completedAt = new Date()
-      onComplete({ id: crypto.randomUUID(), personId: start.personId, category: start.category, nextAuditDate: oneMonthAfter(completedAt), startedAt: start.startedAt, completedAt: completedAt.toISOString(), results: nextResults })
+      onComplete({ id: crypto.randomUUID(), personId: start.personId, category: start.category, nextAuditDate: start.category === 'Escadas' ? oneWeekAfter(completedAt) : oneMonthAfter(completedAt), startedAt: start.startedAt, completedAt: completedAt.toISOString(), results: nextResults })
       return
     }
     setResults(nextResults); setIndex(current => current + 1); setAnswers({}); setPhoto('')
