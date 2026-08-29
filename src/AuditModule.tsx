@@ -1,8 +1,7 @@
-import { ChangeEvent, FormEvent, PointerEvent as ReactPointerEvent, useRef, useState } from 'react'
-import { AlertTriangle, CalendarDays, Camera, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, FileDown, ListChecks, LockKeyhole, PenLine, ShieldCheck, UserCheck, Wrench, X } from 'lucide-react'
+import { ChangeEvent, useState } from 'react'
+import { AlertTriangle, CalendarDays, Camera, ChevronLeft, ChevronRight, ClipboardCheck, FileDown, ListChecks, ShieldCheck, Wrench, X } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import type { AppData, AuditCategory, AuditItemResult, AuditRecord, InventoryItem } from './store'
-import { hashPassword } from './store'
 
 const commonQuestions = [
   'O item está funcionando corretamente?',
@@ -63,7 +62,9 @@ export function AuditPage({ data, onStart }: { data: AppData; onStart: (start: A
   const selectedPerson = data.people.find(person => person.id === personId)
   const selectedItems = personId ? itemsForAudit(data, category, personId) : []
   const latestFor = (targetPersonId: string, type: AuditCategory) => [...data.audits].filter(item => item.personId === targetPersonId && item.category === type).sort((a, b) => b.completedAt.localeCompare(a.completedAt))[0]
-  const people = data.people.filter(person => person.active).map(person => ({ person, items: itemsForAudit(data, category, person.id), latest: latestFor(person.id, category) })).filter(entry => entry.items.length > 0)
+  const currentPerson = data.people.find(person => person.id === data.account.id)
+  const canAuditOthers = currentPerson?.groups.some(group => ['Administrador', 'Auditor', 'Segurança do Trabalho'].includes(group)) ?? false
+  const people = data.people.filter(person => person.active && (category !== 'Escadas' || canAuditOthers || person.id === data.account.id)).map(person => ({ person, items: itemsForAudit(data, category, person.id), latest: latestFor(person.id, category) })).filter(entry => entry.items.length > 0)
 
   if (selectedPerson) {
     const latest = latestFor(selectedPerson.id, category)
@@ -92,7 +93,8 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
   const [results, setResults] = useState<AuditItemResult[]>([])
   const [answers, setAnswers] = useState<Record<number, boolean>>({})
   const [photo, setPhoto] = useState('')
-  const [closingResults, setClosingResults] = useState<AuditItemResult[] | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState('')
   const item = start.items[index]
   const questions = start.category === 'Escadas' ? ladderQuestions : commonQuestions
   const complete = Object.keys(answers).length === questions.length && Boolean(photo)
@@ -105,18 +107,27 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
     reader.readAsDataURL(file)
   }
 
-  const next = () => {
+  const next = async () => {
     if (!complete) return
     const result: AuditItemResult = { inventoryItemId: item.id, equipment: item.equipment, code: item.code, answers: questions.map((question, questionIndex) => ({ question, answer: answers[questionIndex] })), photo, approved: answers[questions.length - 1] === true }
     const nextResults = [...results, result]
     if (index === start.items.length - 1) {
-      setClosingResults(nextResults)
+      setGenerating(true); setError('')
+      const completedAt = new Date()
+      const nextAuditDate = start.category === 'Escadas' ? oneWeekAfter(completedAt) : oneMonthAfter(completedAt)
+      const safeName = start.personName.replace(/[^a-zA-ZÀ-ÿ0-9]+/g, ' ').trim().replace(/\s+/g, '-')
+      const pdfFileName = `Relatório de Auditoria - ${start.category} - ${safeName} - ${todayDate()}.pdf`
+      const fullRecord: AuditRecord = { id: crypto.randomUUID(), personId: start.personId, category: start.category, auditorName: data.account.name, auditedName: start.personName, nextAuditDate, startedAt: start.startedAt, completedAt: completedAt.toISOString(), pdfFileName, results: nextResults }
+      try {
+        await createAuditPdf(fullRecord)
+        onComplete({ ...fullRecord, results: nextResults.map(entry => ({ ...entry, photo: '' })) })
+      } catch {
+        setGenerating(false); setError('Não foi possível gerar o PDF. Tente finalizar novamente.')
+      }
       return
     }
     setResults(nextResults); setIndex(current => current + 1); setAnswers({}); setPhoto('')
   }
-
-  if (closingResults) return <AuditFinalization data={data} start={start} results={closingResults} onCancel={onCancel} onComplete={onComplete} />
 
   return <div className="full-screen-layer audit-wizard-layer">
     <header className="form-page-header"><div><p className="eyebrow">Auditoria de {start.category} · {start.personName}</p><h2>{item.equipment}</h2><p>Item {index + 1} de {start.items.length} · código {item.code || 'não informado'}</p></div><button className="icon-button" onClick={onCancel} aria-label="Fechar auditoria"><X size={22} /></button></header>
@@ -125,87 +136,13 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
       <section className="surface audit-item-info"><div><span>Equipamento</span><b>{item.equipment}</b></div><div><span>Marca / modelo</span><b>{[item.brand, item.model].filter(Boolean).join(' / ') || 'Não informado'}</b></div><div><span>Pessoa auditada</span><b>{start.personName}</b></div></section>
       <section className="surface audit-checklist"><div className="section-heading"><div><p className="eyebrow">Checklist obrigatório</p><h3>Condições do equipamento</h3></div><ListChecks size={22} /></div>{questions.map((question, questionIndex) => <div className="audit-question" key={question}><p><b>{questionIndex + 1}.</b> {question}</p><div><button className={answers[questionIndex] === true ? 'answer-button yes active' : 'answer-button yes'} onClick={() => setAnswers({ ...answers, [questionIndex]: true })}>Sim</button><button className={answers[questionIndex] === false ? 'answer-button no active' : 'answer-button no'} onClick={() => setAnswers({ ...answers, [questionIndex]: false })}>Não</button></div></div>)}</section>
       <section className="surface audit-photo-section"><div className="section-heading"><div><p className="eyebrow">Evidência obrigatória</p><h3>Foto do equipamento</h3></div><Camera size={22} /></div><label className={photo ? 'audit-photo-field filled' : 'audit-photo-field'}><Camera size={28} /><b>{photo ? 'Foto adicionada' : 'Abrir câmera'}</b><small>{photo ? 'Toque para substituir a foto' : 'Registre a condição atual do equipamento'}</small><input type="file" accept="image/*" capture="environment" onChange={choosePhoto} /></label>{photo && <img className="audit-photo-preview" src={photo} alt={`Registro de ${item.equipment}`} />}</section>
+      {error && <p className="audit-final-error"><AlertTriangle size={17} />{error}</p>}
     </main>
-    <footer className="audit-wizard-footer"><button className="secondary-button" disabled={index === 0} onClick={() => { const previous = results[index - 1]; if (!previous) return; setIndex(current => current - 1); setResults(current => current.slice(0, -1)); setAnswers(Object.fromEntries(previous.answers.map((answer, answerIndex) => [answerIndex, answer.answer]))); setPhoto(previous.photo) }}><ChevronLeft size={18} /> Anterior</button><p>{Object.keys(answers).length} de {questions.length} respostas · {photo ? 'foto pronta' : 'foto pendente'}</p><button className="primary-button" disabled={!complete} onClick={next}>{index === start.items.length - 1 ? <><CheckCircle2 size={18} /> Concluir auditoria</> : <>Próximo equipamento <ChevronRight size={18} /></>}</button></footer>
+    <footer className="audit-wizard-footer"><button className="secondary-button" disabled={index === 0 || generating} onClick={() => { const previous = results[index - 1]; if (!previous) return; setIndex(current => current - 1); setResults(current => current.slice(0, -1)); setAnswers(Object.fromEntries(previous.answers.map((answer, answerIndex) => [answerIndex, answer.answer]))); setPhoto(previous.photo) }}><ChevronLeft size={18} /> Anterior</button><p>{Object.keys(answers).length} de {questions.length} respostas · {photo ? 'foto pronta' : 'foto pendente'}</p><button className="primary-button" disabled={!complete || generating} onClick={next}>{generating ? 'Gerando PDF...' : index === start.items.length - 1 ? <><FileDown size={18} /> Finalizar e salvar PDF</> : <>Próximo equipamento <ChevronRight size={18} /></>}</button></footer>
   </div>
 }
 
-function AuditFinalization({ data, start, results, onCancel, onComplete }: { data: AppData; start: AuditStart; results: AuditItemResult[]; onCancel: () => void; onComplete: (audit: AuditRecord) => void }) {
-  const [stage, setStage] = useState<'auditor' | 'audited'>('auditor')
-  const [password, setPassword] = useState('')
-  const [auditorSignature, setAuditorSignature] = useState<string | null>(null)
-  const [auditedSignature, setAuditedSignature] = useState<string | null>(null)
-  const [error, setError] = useState('')
-  const [generating, setGenerating] = useState(false)
-
-  const confirmAuditor = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!auditorSignature) { setError('A assinatura do auditor é obrigatória.'); return }
-    if (await hashPassword(password) !== data.account.passwordHash) { setError('A senha informada não corresponde ao usuário conectado.'); return }
-    setError(''); setStage('audited')
-  }
-
-  const finish = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!auditedSignature) { setError('A assinatura da pessoa auditada é obrigatória.'); return }
-    setGenerating(true); setError('')
-    const completedAt = new Date()
-    const nextAuditDate = start.category === 'Escadas' ? oneWeekAfter(completedAt) : oneMonthAfter(completedAt)
-    const safeName = start.personName.replace(/[^a-zA-ZÀ-ÿ0-9]+/g, ' ').trim().replace(/\s+/g, '-')
-    const pdfFileName = `Relatório de Auditoria - ${start.category} - ${safeName} - ${todayDate()}.pdf`
-    const fullRecord: AuditRecord = { id: crypto.randomUUID(), personId: start.personId, category: start.category, auditorName: data.account.name, auditedName: start.personName, nextAuditDate, startedAt: start.startedAt, completedAt: completedAt.toISOString(), pdfFileName, results }
-    try {
-      await createAuditPdf(fullRecord, auditorSignature, auditedSignature)
-      onComplete({ ...fullRecord, results: results.map(result => ({ ...result, photo: '' })) })
-    } catch {
-      setError('Não foi possível gerar o PDF. Tente novamente.'); setGenerating(false)
-    }
-  }
-
-  return <div className="full-screen-layer audit-signature-layer">
-    <header className="form-page-header"><div><p className="eyebrow">Finalização da auditoria</p><h2>{stage === 'auditor' ? 'Confirmação do auditor' : 'Assinatura da pessoa auditada'}</h2><p>Etapa {stage === 'auditor' ? '1' : '2'} de 2 · {start.category}</p></div><button className="icon-button" onClick={onCancel} aria-label="Cancelar finalização"><X size={22} /></button></header>
-    <div className="signature-steps"><span className="active">1</span><i className={stage === 'audited' ? 'active' : ''} /><span className={stage === 'audited' ? 'active' : ''}>2</span><small>Auditor</small><small>Auditado</small></div>
-    {stage === 'auditor' ? <form className="audit-signature-content" onSubmit={confirmAuditor}>
-      <section className="surface audit-signature-card"><div className="section-heading"><div><p className="eyebrow">Usuário conectado</p><h3>Confirme sua identidade</h3></div><LockKeyhole size={22} /></div><div className="audit-parties"><div><span>Auditor</span><b>{data.account.name}</b></div><div><span>Pessoa auditada</span><b>{start.personName}</b></div></div><label className="audit-password-field">Senha do auditor<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required placeholder="Digite sua senha de acesso" /></label></section>
-      <section className="surface audit-signature-card"><div className="section-heading"><div><p className="eyebrow">Assinatura obrigatória</p><h3>Assinatura do auditor</h3></div><PenLine size={22} /></div><SignaturePad label={`Assinatura de ${data.account.name}`} onChange={setAuditorSignature} /></section>
-      {error && <p className="audit-final-error"><AlertTriangle size={17} />{error}</p>}
-      <div className="audit-final-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancelar</button><button className="primary-button">Validar e continuar <ChevronRight size={18} /></button></div>
-    </form> : <form className="audit-signature-content" onSubmit={finish}>
-      <section className="surface audit-signature-card"><div className="section-heading"><div><p className="eyebrow">Identidade do auditor validada</p><h3>{data.account.name}</h3></div><CheckCircle2 size={22} /></div><p className="signature-instruction">Agora entregue o celular para <b>{start.personName}</b> conferir e assinar.</p></section>
-      <section className="surface audit-signature-card"><div className="section-heading"><div><p className="eyebrow">Assinatura obrigatória</p><h3>Assinatura de {start.personName}</h3></div><UserCheck size={22} /></div><SignaturePad label={`Assinatura de ${start.personName}`} onChange={setAuditedSignature} /></section>
-      {error && <p className="audit-final-error"><AlertTriangle size={17} />{error}</p>}
-      <div className="audit-final-actions"><button type="button" className="secondary-button" disabled={generating} onClick={() => { setStage('auditor'); setError('') }}><ChevronLeft size={18} /> Voltar</button><button className="primary-button" disabled={generating}>{generating ? 'Gerando relatório...' : <><FileDown size={18} /> Finalizar e salvar PDF</>}</button></div>
-    </form>}
-  </div>
-}
-
-function SignaturePad({ label, onChange }: { label: string; onChange: (signature: string | null) => void }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const drawing = useRef(false)
-  const point = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current!
-    const rect = canvas.getBoundingClientRect()
-    return { x: (event.clientX - rect.left) * (canvas.width / rect.width), y: (event.clientY - rect.top) * (canvas.height / rect.height) }
-  }
-  const start = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    drawing.current = true
-    canvasRef.current!.setPointerCapture(event.pointerId)
-    const context = canvasRef.current!.getContext('2d')!
-    const current = point(event)
-    context.beginPath(); context.moveTo(current.x, current.y)
-  }
-  const move = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    if (!drawing.current) return
-    const context = canvasRef.current!.getContext('2d')!
-    const current = point(event)
-    context.lineWidth = 2.4; context.lineCap = 'round'; context.strokeStyle = '#242729'; context.lineTo(current.x, current.y); context.stroke()
-  }
-  const stop = () => { if (drawing.current) onChange(canvasRef.current!.toDataURL('image/png')); drawing.current = false }
-  const clear = () => { const canvas = canvasRef.current!; canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height); onChange(null) }
-  return <div className="signature-wrap audit-signature-pad"><canvas ref={canvasRef} width="900" height="230" onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} /><span>{label} — assine com o dedo dentro da área</span><button type="button" onClick={clear}>Limpar assinatura</button></div>
-}
-
-async function createAuditPdf(record: AuditRecord, auditorSignature: string, auditedSignature: string) {
+async function createAuditPdf(record: AuditRecord) {
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
   let logo = ''
   try { logo = await fetch('/alert-logo.png').then(response => response.blob()).then(blobToDataUrl) } catch { /* O título mantém o documento identificável. */ }
@@ -252,14 +189,13 @@ async function createAuditPdf(record: AuditRecord, auditorSignature: string, aud
     }
   })
 
-  pdf.addPage(); header('Assinaturas e confirmação', `${record.category} · ${record.auditedName}`)
-  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(10); pdf.setTextColor(55, 58, 60); pdf.text(`Auditor: ${record.auditorName}`, 15, 66)
-  pdf.addImage(auditorSignature, 'PNG', 15, 72, 82, 30); pdf.setDrawColor(120, 124, 126); pdf.line(15, 104, 97, 104)
-  pdf.text(`Pessoa auditada: ${record.auditedName}`, 15, 128)
-  pdf.addImage(auditedSignature, 'PNG', 15, 134, 82, 30); pdf.line(15, 166, 97, 166)
-  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(112, 117, 122)
-  pdf.text(`Documento gerado em ${new Date(record.completedAt).toLocaleString('pt-BR')}.`, 15, 184)
-  pdf.text('As assinaturas confirmam a realização da auditoria e o conhecimento dos resultados registrados.', 15, 191)
+  pdf.addPage(); header('Conclusão da auditoria', `${record.category} · ${record.auditedName}`)
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.setTextColor(55, 58, 60); pdf.text(`Resultado: ${approved === record.results.length ? 'APROVADA' : 'COM RESSALVAS'}`, 15, 68)
+  pdf.setFontSize(10); pdf.text(`Auditor responsável: ${record.auditorName}`, 15, 82)
+  pdf.text(`Pessoa auditada: ${record.auditedName}`, 15, 93)
+  pdf.text(`Equipamentos aprovados: ${approved} de ${record.results.length}`, 15, 104)
+  pdf.text(`Próxima auditoria: ${new Date(`${record.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR')}`, 15, 115)
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(112, 117, 122); pdf.text(`Documento gerado em ${new Date(record.completedAt).toLocaleString('pt-BR')}.`, 15, 132)
   pdf.save(record.pdfFileName)
 }
 
