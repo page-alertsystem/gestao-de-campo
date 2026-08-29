@@ -8,10 +8,11 @@ import { PermissionMatrix } from './PermissionMatrix'
 import { KmForm } from './KmForm'
 import { StockRequestForm } from './StockRequestForm'
 import { StockManagement } from './StockManagement'
+import { MaterialUsagePage, StockApprovals } from './StockWorkflow'
 import { AdminCatalogs } from './AdminCatalogs'
 import { hashPassword, loadAppData, saveAppData, type AppData } from './store'
 
-type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'estoque-ferramentas' | 'estoque-insumos' | 'estoque-epis' | 'estoque-gestao' | 'relatorios' | 'configuracoes'
+type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'estoque-ferramentas' | 'estoque-insumos' | 'estoque-epis' | 'estoque-aprovacoes' | 'estoque-utilizados' | 'estoque-gestao' | 'relatorios' | 'configuracoes'
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
 
@@ -41,6 +42,8 @@ const stockPages: { id: Page; label: string; icon: ComponentType<{ size?: number
   { id: 'estoque-ferramentas', label: 'Ferramentas', icon: Wrench },
   { id: 'estoque-insumos', label: 'Insumos', icon: PackageCheck },
   { id: 'estoque-epis', label: 'EPIs', icon: ShieldCheck },
+  { id: 'estoque-aprovacoes', label: 'Aprovações', icon: CheckCircle2 },
+  { id: 'estoque-utilizados', label: 'Materiais utilizados', icon: ClipboardCheck },
   { id: 'estoque-gestao', label: 'Gestão', icon: Warehouse },
 ]
 const isOperationPage = (page: Page) => page.startsWith('operacao-')
@@ -201,7 +204,9 @@ export default function App() {
         {toast && <div className="toast" role="status"><CheckCircle2 size={19} />{toast}</div>}
         {page === 'inicio' && <Dashboard data={data} activities={activities} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} onRequest={() => setRequestOpen(true)} />}
         {isOperationPage(page) && <OperationPage section={page} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
-        {isStockPage(page) && page !== 'estoque-gestao' && <StockPage section={page} data={data} onRequest={() => setRequestOpen(true)} />}
+        {['estoque-ferramentas', 'estoque-insumos', 'estoque-epis'].includes(page) && <StockPage section={page} data={data} />}
+        {page === 'estoque-aprovacoes' && <StockApprovals data={data} onChange={updateData} />}
+        {page === 'estoque-utilizados' && <MaterialUsagePage data={data} onChange={updateData} />}
         {page === 'estoque-gestao' && canManageStock && <StockManagement data={data} onChange={updateData} />}
         {page === 'relatorios' && <ReportsPage data={data} />}
         {page === 'configuracoes' && <SettingsPage data={data} onChange={updateData} onOpenPermissions={() => setPermissionsOpen(true)} />}
@@ -335,18 +340,19 @@ function OperationPage({ section, data, onAction, onKm }: { section: Page; data:
   </>
 }
 
-function StockPage({ section, data, onRequest }: { section: Page; data: AppData; onRequest: () => void }) {
+function StockPage({ section, data }: { section: Page; data: AppData }) {
   const config = section === 'estoque-ferramentas'
     ? { title: 'Ferramentas', description: 'Consulte as ferramentas pessoais e demais ferramentas sob sua responsabilidade.', filter: (category: string) => category.includes('Ferramenta') }
     : section === 'estoque-epis'
       ? { title: 'EPIs', description: 'Acompanhe os equipamentos de proteção individual entregues e disponíveis.', filter: (category: string) => category === 'EPI' }
       : { title: 'Insumos', description: 'Acompanhe os materiais de consumo disponíveis e faça novas solicitações.', filter: (category: string) => category === 'Insumo' }
   const personalBalances = new Map<string, number>()
-  data.stockAssignments.filter(assignment => assignment.personId === data.account.id).forEach(assignment => personalBalances.set(assignment.inventoryItemId, (personalBalances.get(assignment.inventoryItemId) ?? 0) + assignment.quantity))
+  data.stockAssignments.filter(assignment => assignment.personId === data.account.id && assignment.status === 'Aprovado').forEach(assignment => personalBalances.set(assignment.inventoryItemId, (personalBalances.get(assignment.inventoryItemId) ?? 0) + assignment.quantity))
+  data.materialUsages.filter(usage => usage.personId === data.account.id).forEach(usage => personalBalances.set(usage.inventoryItemId, (personalBalances.get(usage.inventoryItemId) ?? 0) - usage.quantity))
   const filteredItems = data.inventory.filter(item => config.filter(item.category) && (personalBalances.get(item.id) ?? 0) !== 0)
   const itemRows = filteredItems.map(item => [item.equipment, [item.brand, item.model].filter(Boolean).join(' ') || '—', item.unit, String(personalBalances.get(item.id) ?? 0), 'Atribuído'])
   return <>
-    <PageIntro eyebrow="Meu estoque" title={config.title} description={config.description} action={<button className="primary-button" onClick={onRequest}><Plus size={18} /> Nova solicitação</button>} />
+    <PageIntro eyebrow="Meu estoque" title={config.title} description={config.description} />
     <section className="attention-grid stock-summary"><Metric icon={Warehouse} value={String(filteredItems.length)} label={`Tipos de ${config.title.toLowerCase()}`} /><Metric icon={PackageCheck} value={String(data.stockRequests.filter(item => item.status !== 'Entregue').length)} label="Pedidos em andamento" /><Metric icon={Boxes} value={String(filteredItems.reduce((total, item) => total + (personalBalances.get(item.id) ?? 0), 0))} label="Quantidade atribuída" /></section>
     <section className="surface table-surface"><div className="table-toolbar"><div><p className="eyebrow">Estoque individual</p><h3>{config.title} atribuídos a você</h3></div><label className="search-field"><Search size={17} /><input placeholder={`Buscar em ${config.title.toLowerCase()}`} /></label></div><div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Marca / modelo</th><th>Unidade</th><th>Quantidade</th><th>Status</th></tr></thead><tbody>{itemRows.length ? itemRows.map((row, index) => <tr key={index}>{row.map((cell, column) => <td key={column}>{column === 4 ? <span className="status success">{cell}</span> : cell}</td>)}</tr>) : <tr><td colSpan={5} className="table-empty">Nenhum item desta categoria foi atribuído a você.</td></tr>}</tbody></table></div></section>
   </>
