@@ -1,6 +1,6 @@
 import { FormEvent, type ComponentType, type ReactNode, useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Bell, Boxes, CalendarClock, CarFront, CheckCircle2, ChevronRight, ClipboardCheck,
+  AlertTriangle, Bell, Boxes, CalendarClock, CarFront, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck,
   Download, FileBarChart, Home, LogOut, MapPin, Menu, PackageCheck, Plus, Route,
   Search, Settings, ShieldCheck, Signal, SignalZero, Users, Warehouse, X,
 } from 'lucide-react'
@@ -10,13 +10,13 @@ import { StockRequestForm } from './StockRequestForm'
 import { AdminCatalogs } from './AdminCatalogs'
 import { hashPassword, loadAppData, saveAppData, type AppData } from './store'
 
-type Page = 'inicio' | 'trajeto' | 'estoque' | 'relatorios' | 'configuracoes'
+type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'estoque' | 'relatorios' | 'configuracoes'
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
 
 const nav: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'inicio', label: 'Início', icon: Home },
-  { id: 'trajeto', label: 'Operação', icon: Route },
+  { id: 'operacao-dia', label: 'Operação', icon: Route },
   { id: 'estoque', label: 'Estoque', icon: Boxes },
   { id: 'relatorios', label: 'Relatórios', icon: FileBarChart },
   { id: 'configuracoes', label: 'Configurações', icon: Settings },
@@ -30,6 +30,14 @@ const actions: { label: ActionName; detail: string; icon: ComponentType<{ size?:
   { label: 'Esqueci meu ponto', detail: 'Avise o RH sobre um ponto não registrado', icon: CalendarClock },
 ]
 
+const dayActions = actions.filter(item => item.label !== 'Esqueci meu ponto')
+const operationPages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
+  { id: 'operacao-km', label: 'Relatório de KM', icon: CarFront },
+  { id: 'operacao-dia', label: 'Registro do dia', icon: ClipboardCheck },
+  { id: 'operacao-ponto', label: 'Esqueci meu ponto', icon: CalendarClock },
+]
+const isOperationPage = (page: Page) => page.startsWith('operacao-')
+
 const todayInput = () => new Date().toISOString().slice(0, 10)
 const nowInput = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
@@ -40,6 +48,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('inicio')
   const [online, setOnline] = useState(navigator.onLine)
   const [drawer, setDrawer] = useState(false)
+  const [operationOpen, setOperationOpen] = useState(false)
   const [activeAction, setActiveAction] = useState<ActionName | null>(null)
   const [permissionsOpen, setPermissionsOpen] = useState(false)
   const [kmOpen, setKmOpen] = useState(false)
@@ -80,6 +89,7 @@ export default function App() {
 
   const navigate = (next: Page) => {
     setPage(next)
+    if (isOperationPage(next)) setOperationOpen(true)
     setDrawer(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -114,7 +124,7 @@ export default function App() {
     updateData(next)
   }} onSignOut={signOut} />
 
-  const title = nav.find(item => item.id === page)?.label ?? 'Início'
+  const title = operationPages.find(item => item.id === page)?.label ?? nav.find(item => item.id === page)?.label ?? 'Início'
 
   return <div className="app-shell">
     <aside className={drawer ? 'sidebar open' : 'sidebar'}>
@@ -125,9 +135,16 @@ export default function App() {
       <nav className="main-nav" aria-label="Navegação principal">
         {nav.map(item => {
           const Icon = item.icon
-          return <button key={item.id} className={page === item.id ? 'nav-item active' : 'nav-item'} onClick={() => navigate(item.id)}>
-            <Icon size={20} /><span>{item.label}</span>
-          </button>
+          if (item.label === 'Operação') return <div className="nav-group" key={item.id}>
+            <button className={isOperationPage(page) ? 'nav-item active' : 'nav-item'} onClick={() => setOperationOpen(current => !current)} aria-expanded={operationOpen}>
+              <Icon size={20} /><span>{item.label}</span><ChevronDown className={operationOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
+            </button>
+            {operationOpen && <div className="nav-submenu">{operationPages.map(subitem => {
+              const SubIcon = subitem.icon
+              return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
+            })}</div>}
+          </div>
+          return <button key={item.id} className={page === item.id ? 'nav-item active' : 'nav-item'} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label}</span></button>
         })}
       </nav>
       <div className="sidebar-foot">
@@ -161,7 +178,7 @@ export default function App() {
       <main className="page-content">
         {toast && <div className="toast" role="status"><CheckCircle2 size={19} />{toast}</div>}
         {page === 'inicio' && <Dashboard data={data} activities={activities} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} onRequest={() => setRequestOpen(true)} />}
-        {page === 'trajeto' && <OperationPage onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
+        {isOperationPage(page) && <OperationPage section={page} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
         {page === 'estoque' && <StockPage data={data} onRequest={() => setRequestOpen(true)} />}
         {page === 'relatorios' && <ReportsPage data={data} />}
         {page === 'configuracoes' && <SettingsPage data={data} onChange={updateData} onOpenPermissions={() => setPermissionsOpen(true)} />}
@@ -170,7 +187,7 @@ export default function App() {
       <nav className="mobile-nav" aria-label="Navegação móvel">
         {nav.map(item => {
           const Icon = item.icon
-          return <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label === 'Configurações' ? 'Mais' : item.label}</span></button>
+          return <button key={item.id} className={(item.label === 'Operação' ? isOperationPage(page) : page === item.id) ? 'active' : ''} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label === 'Configurações' ? 'Mais' : item.label}</span></button>
         })}
       </nav>
     </div>
@@ -268,14 +285,28 @@ function Dashboard({ data, activities, onAction, onNavigate, onKm, onRequest }: 
   </>
 }
 
-function OperationPage({ onAction, onKm }: { onAction: (action: ActionName) => void; onKm: () => void }) {
+function OperationPage({ section, data, onAction, onKm }: { section: Page; data: AppData; onAction: (action: ActionName) => void; onKm: () => void }) {
+  if (section === 'operacao-km') return <>
+    <PageIntro eyebrow="Operação de campo" title="Relatório de KM" description="Registre o veículo, a quilometragem atual e o destino antes de iniciar o deslocamento." action={<button className="primary-button" onClick={onKm}><Plus size={18} /> Novo relatório de KM</button>} />
+    <section className="surface table-surface"><div className="table-toolbar"><div><p className="eyebrow">Histórico</p><h3>Registros de quilometragem</h3></div></div><div className="responsive-table"><table><thead><tr><th>Data</th><th>Veículo</th><th>Condutor</th><th>Destino</th><th>Quilometragem</th></tr></thead><tbody>{data.kmRecords.length ? [...data.kmRecords].reverse().map(item => <tr key={item.id}><td>{new Date(item.createdAt).toLocaleString('pt-BR')}</td><td>{item.vehicle}</td><td>{item.driver}</td><td>{item.destination}</td><td>{item.mileage.toLocaleString('pt-BR')} km</td></tr>) : <tr><td colSpan={5} className="table-empty">Nenhum relatório de KM registrado.</td></tr>}</tbody></table></div></section>
+  </>
+
+  if (section === 'operacao-ponto') {
+    const pointAction = actions.find(item => item.label === 'Esqueci meu ponto')!
+    const PointIcon = pointAction.icon
+    return <>
+      <PageIntro eyebrow="Operação de campo" title="Esqueci meu ponto" description="Registre um ponto não realizado no outro aplicativo. O RH será avisado automaticamente." />
+      <section className="action-grid operation-actions single-action"><button className="action-card point" onClick={() => onAction(pointAction.label)}><span><PointIcon size={21} /></span><div><b>Novo registro de ponto esquecido</b><small>Entrada, saída, início ou término do almoço</small></div><ChevronRight size={18} /></button></section>
+      <section className="surface empty-state"><CalendarClock size={30} /><h3>Prazo de até 7 dias corridos</h3><p>A data e o horário informados ficam registrados junto do momento real e da localização do envio. A justificativa é obrigatória.</p></section>
+    </>
+  }
+
   return <>
-    <PageIntro eyebrow="Operação de campo" title="Registros do dia" description="Cada técnico registra a própria movimentação. Registros enviados não podem ser apagados." />
-    <section className="action-grid operation-actions">{actions.map(item => {
+    <PageIntro eyebrow="Operação de campo" title="Registro do dia" description="Registre os acontecimentos do deslocamento no mesmo dia. Registros enviados não podem ser desfeitos." />
+    <section className="action-grid operation-actions">{dayActions.map(item => {
       const Icon = item.icon
-      return <button key={item.label} className={item.label === 'Esqueci meu ponto' ? 'action-card point' : 'action-card'} onClick={() => onAction(item.label)}><span><Icon size={21} /></span><div><b>{item.label}</b><small>{item.detail}</small></div><ChevronRight size={18} /></button>
+      return <button key={item.label} className="action-card" onClick={() => onAction(item.label)}><span><Icon size={21} /></span><div><b>{item.label}</b><small>{item.detail}</small></div><ChevronRight size={18} /></button>
     })}</section>
-    <section className="form-shortcuts operation-shortcuts"><button onClick={onKm}><span><CarFront size={22} /></span><div><b>Relatório de KM</b><small>Veículo, destino, troca de condutor, fotos e avarias</small></div><ChevronRight size={19} /></button></section>
     <section className="surface empty-state"><MapPin size={30} /><h3>Localização protegida</h3><p>A data, o horário e a precisão do GPS serão registrados automaticamente, sem exibir as coordenadas ao técnico.</p></section>
   </>
 }
