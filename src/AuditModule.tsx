@@ -1,5 +1,5 @@
-import { ChangeEvent, useState } from 'react'
-import { AlertTriangle, CalendarDays, Camera, ChevronLeft, ChevronRight, ClipboardCheck, FileDown, ListChecks, ShieldCheck, Wrench, X } from 'lucide-react'
+import { ChangeEvent, PointerEvent as ReactPointerEvent, useRef, useState } from 'react'
+import { AlertTriangle, CalendarDays, Camera, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, FileDown, ListChecks, PenLine, ShieldCheck, UserCheck, Wrench, X } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import type { AppData, AuditCategory, AuditItemResult, AuditRecord, InventoryItem } from './store'
 
@@ -93,8 +93,7 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
   const [results, setResults] = useState<AuditItemResult[]>([])
   const [answers, setAnswers] = useState<Record<number, boolean>>({})
   const [photo, setPhoto] = useState('')
-  const [generating, setGenerating] = useState(false)
-  const [error, setError] = useState('')
+  const [closingResults, setClosingResults] = useState<AuditItemResult[] | null>(null)
   const item = start.items[index]
   const questions = start.category === 'Escadas' ? ladderQuestions : commonQuestions
   const complete = Object.keys(answers).length === questions.length && Boolean(photo)
@@ -107,27 +106,18 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
     reader.readAsDataURL(file)
   }
 
-  const next = async () => {
+  const next = () => {
     if (!complete) return
     const result: AuditItemResult = { inventoryItemId: item.id, equipment: item.equipment, code: item.code, answers: questions.map((question, questionIndex) => ({ question, answer: answers[questionIndex] })), photo, approved: answers[questions.length - 1] === true }
     const nextResults = [...results, result]
     if (index === start.items.length - 1) {
-      setGenerating(true); setError('')
-      const completedAt = new Date()
-      const nextAuditDate = start.category === 'Escadas' ? oneWeekAfter(completedAt) : oneMonthAfter(completedAt)
-      const safeName = start.personName.replace(/[^a-zA-ZÀ-ÿ0-9]+/g, ' ').trim().replace(/\s+/g, '-')
-      const pdfFileName = `Relatório de Auditoria - ${start.category} - ${safeName} - ${todayDate()}.pdf`
-      const fullRecord: AuditRecord = { id: crypto.randomUUID(), personId: start.personId, category: start.category, auditorName: data.account.name, auditedName: start.personName, nextAuditDate, startedAt: start.startedAt, completedAt: completedAt.toISOString(), pdfFileName, results: nextResults }
-      try {
-        await createAuditPdf(fullRecord)
-        onComplete({ ...fullRecord, results: nextResults.map(entry => ({ ...entry, photo: '' })) })
-      } catch {
-        setGenerating(false); setError('Não foi possível gerar o PDF. Tente finalizar novamente.')
-      }
+      setClosingResults(nextResults)
       return
     }
     setResults(nextResults); setIndex(current => current + 1); setAnswers({}); setPhoto('')
   }
+
+  if (closingResults) return <AuditSigning data={data} start={start} results={closingResults} onCancel={onCancel} onComplete={onComplete} />
 
   return <div className="full-screen-layer audit-wizard-layer">
     <header className="form-page-header"><div><p className="eyebrow">Auditoria de {start.category} · {start.personName}</p><h2>{item.equipment}</h2><p>Item {index + 1} de {start.items.length} · código {item.code || 'não informado'}</p></div><button className="icon-button" onClick={onCancel} aria-label="Fechar auditoria"><X size={22} /></button></header>
@@ -136,13 +126,81 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
       <section className="surface audit-item-info"><div><span>Equipamento</span><b>{item.equipment}</b></div><div><span>Marca / modelo</span><b>{[item.brand, item.model].filter(Boolean).join(' / ') || 'Não informado'}</b></div><div><span>Pessoa auditada</span><b>{start.personName}</b></div></section>
       <section className="surface audit-checklist"><div className="section-heading"><div><p className="eyebrow">Checklist obrigatório</p><h3>Condições do equipamento</h3></div><ListChecks size={22} /></div>{questions.map((question, questionIndex) => <div className="audit-question" key={question}><p><b>{questionIndex + 1}.</b> {question}</p><div><button className={answers[questionIndex] === true ? 'answer-button yes active' : 'answer-button yes'} onClick={() => setAnswers({ ...answers, [questionIndex]: true })}>Sim</button><button className={answers[questionIndex] === false ? 'answer-button no active' : 'answer-button no'} onClick={() => setAnswers({ ...answers, [questionIndex]: false })}>Não</button></div></div>)}</section>
       <section className="surface audit-photo-section"><div className="section-heading"><div><p className="eyebrow">Evidência obrigatória</p><h3>Foto do equipamento</h3></div><Camera size={22} /></div><label className={photo ? 'audit-photo-field filled' : 'audit-photo-field'}><Camera size={28} /><b>{photo ? 'Foto adicionada' : 'Abrir câmera'}</b><small>{photo ? 'Toque para substituir a foto' : 'Registre a condição atual do equipamento'}</small><input type="file" accept="image/*" capture="environment" onChange={choosePhoto} /></label>{photo && <img className="audit-photo-preview" src={photo} alt={`Registro de ${item.equipment}`} />}</section>
-      {error && <p className="audit-final-error"><AlertTriangle size={17} />{error}</p>}
     </main>
-    <footer className="audit-wizard-footer"><button className="secondary-button" disabled={index === 0 || generating} onClick={() => { const previous = results[index - 1]; if (!previous) return; setIndex(current => current - 1); setResults(current => current.slice(0, -1)); setAnswers(Object.fromEntries(previous.answers.map((answer, answerIndex) => [answerIndex, answer.answer]))); setPhoto(previous.photo) }}><ChevronLeft size={18} /> Anterior</button><p>{Object.keys(answers).length} de {questions.length} respostas · {photo ? 'foto pronta' : 'foto pendente'}</p><button className="primary-button" disabled={!complete || generating} onClick={next}>{generating ? 'Gerando PDF...' : index === start.items.length - 1 ? <><FileDown size={18} /> Finalizar e salvar PDF</> : <>Próximo equipamento <ChevronRight size={18} /></>}</button></footer>
+    <footer className="audit-wizard-footer"><button className="secondary-button" disabled={index === 0} onClick={() => { const previous = results[index - 1]; if (!previous) return; setIndex(current => current - 1); setResults(current => current.slice(0, -1)); setAnswers(Object.fromEntries(previous.answers.map((answer, answerIndex) => [answerIndex, answer.answer]))); setPhoto(previous.photo) }}><ChevronLeft size={18} /> Anterior</button><p>{Object.keys(answers).length} de {questions.length} respostas · {photo ? 'foto pronta' : 'foto pendente'}</p><button className="primary-button" disabled={!complete} onClick={next}>{index === start.items.length - 1 ? <><PenLine size={18} /> Continuar para assinatura</> : <>Próximo equipamento <ChevronRight size={18} /></>}</button></footer>
   </div>
 }
 
-async function createAuditPdf(record: AuditRecord) {
+function AuditSigning({ data, start, results, onCancel, onComplete }: { data: AppData; start: AuditStart; results: AuditItemResult[]; onCancel: () => void; onComplete: (audit: AuditRecord) => void }) {
+  const [auditorSignature, setAuditorSignature] = useState<string | null>(null)
+  const [auditedSignature, setAuditedSignature] = useState<string | null>(null)
+  const [activeSigner, setActiveSigner] = useState<'auditor' | 'audited' | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState('')
+  const selfAudit = data.account.id === start.personId
+  const ready = Boolean(auditorSignature) && (selfAudit || Boolean(auditedSignature))
+
+  const finish = async () => {
+    if (!ready || !auditorSignature) return
+    setGenerating(true); setError('')
+    const completedAt = new Date()
+    const nextAuditDate = start.category === 'Escadas' ? oneWeekAfter(completedAt) : oneMonthAfter(completedAt)
+    const safeName = start.personName.replace(/[^a-zA-ZÀ-ÿ0-9]+/g, ' ').trim().replace(/\s+/g, '-')
+    const pdfFileName = `Relatório de Auditoria - ${start.category} - ${safeName} - ${todayDate()}.pdf`
+    const record: AuditRecord = { id: crypto.randomUUID(), personId: start.personId, category: start.category, auditorName: data.account.name, auditedName: start.personName, nextAuditDate, startedAt: start.startedAt, completedAt: completedAt.toISOString(), pdfFileName, results }
+    try {
+      await createAuditPdf(record, auditorSignature, selfAudit ? undefined : auditedSignature ?? undefined)
+      onComplete({ ...record, results: results.map(result => ({ ...result, photo: '' })) })
+    } catch {
+      setError('Não foi possível gerar o PDF. Tente finalizar novamente.'); setGenerating(false)
+    }
+  }
+
+  if (activeSigner) {
+    const isAuditor = activeSigner === 'auditor'
+    const signerName = isAuditor ? data.account.name : start.personName
+    return <SignatureCapture signerName={signerName} signerRole={selfAudit ? 'Técnico responsável pela autoauditoria' : isAuditor ? 'Responsável pela auditoria' : 'Pessoa auditada'} onCancel={() => setActiveSigner(null)} onSave={signature => { if (isAuditor) setAuditorSignature(signature); else setAuditedSignature(signature); setActiveSigner(null) }} />
+  }
+
+  return <div className="full-screen-layer audit-signing-layer">
+    <header className="form-page-header"><div><p className="eyebrow">Etapa final</p><h2>Assinaturas da auditoria</h2><p>{start.category} · {start.personName}</p></div><button className="icon-button" onClick={onCancel} aria-label="Cancelar auditoria"><X size={22} /></button></header>
+    <main className="audit-signing-content">
+      <section className="surface audit-signing-summary"><div className="section-heading"><div><p className="eyebrow">Resumo</p><h3>Auditoria pronta para finalizar</h3></div><CheckCircle2 size={23} /></div><div className="audit-parties"><div><span>Responsável</span><b>{data.account.name}</b></div><div><span>Pessoa auditada</span><b>{start.personName}</b></div><div><span>Equipamentos</span><b>{results.length}</b></div><div><span>Resultado</span><b>{results.every(result => result.approved) ? 'Aprovada' : 'Com ressalvas'}</b></div></div></section>
+      <section className="surface signature-selector-card"><div className="section-heading"><div><p className="eyebrow">Assinatura obrigatória</p><h3>{selfAudit ? 'Assinatura do técnico' : 'Assinaturas dos responsáveis'}</h3></div><PenLine size={22} /></div>
+        <button className={auditorSignature ? 'signature-select registered' : 'signature-select'} onClick={() => setActiveSigner('auditor')}><span>{selfAudit ? <UserCheck size={22} /> : <PenLine size={22} />}</span><div><b>{selfAudit ? start.personName : data.account.name}</b><small>{selfAudit ? 'Técnico responsável pela autoauditoria' : 'Responsável pela auditoria'}</small></div><strong>{auditorSignature ? 'Assinatura registrada' : 'Toque para assinar'}</strong><ChevronRight size={18} /></button>
+        {!selfAudit && <button className={auditedSignature ? 'signature-select registered' : 'signature-select'} onClick={() => setActiveSigner('audited')}><span><UserCheck size={22} /></span><div><b>{start.personName}</b><small>Pessoa auditada</small></div><strong>{auditedSignature ? 'Assinatura registrada' : 'Toque para assinar'}</strong><ChevronRight size={18} /></button>}
+      </section>
+      {error && <p className="audit-final-error"><AlertTriangle size={17} />{error}</p>}
+      <div className="audit-signing-actions"><button className="secondary-button" disabled={generating} onClick={onCancel}>Cancelar</button><button className="primary-button" disabled={!ready || generating} onClick={finish}>{generating ? 'Gerando PDF...' : <><FileDown size={18} /> Finalizar e salvar PDF</>}</button></div>
+    </main>
+  </div>
+}
+
+function SignatureCapture({ signerName, signerRole, onCancel, onSave }: { signerName: string; signerRole: string; onCancel: () => void; onSave: (signature: string) => void }) {
+  const [signature, setSignature] = useState<string | null>(null)
+  return <div className="full-screen-layer signature-capture-layer">
+    <header className="form-page-header"><div><p className="eyebrow">Registrar assinatura</p><h2>{signerName}</h2><p>{signerRole}</p></div><button className="icon-button" onClick={onCancel} aria-label="Fechar assinatura"><X size={22} /></button></header>
+    <main className="signature-capture-content"><section className="surface"><div className="section-heading"><div><p className="eyebrow">Use o dedo na tela</p><h3>Assine dentro do espaço abaixo</h3></div><PenLine size={23} /></div><SignaturePad label={`Assinatura de ${signerName}`} onChange={setSignature} /></section></main>
+    <footer className="signature-capture-footer"><button className="secondary-button" onClick={onCancel}>Cancelar</button><button className="primary-button" disabled={!signature} onClick={() => signature && onSave(signature)}><CheckCircle2 size={18} /> Registrar assinatura</button></footer>
+  </div>
+}
+
+function SignaturePad({ label, onChange }: { label: string; onChange: (signature: string | null) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const drawing = useRef(false)
+  const point = (event: ReactPointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current!
+    const rect = canvas.getBoundingClientRect()
+    return { x: (event.clientX - rect.left) * (canvas.width / rect.width), y: (event.clientY - rect.top) * (canvas.height / rect.height) }
+  }
+  const startDrawing = (event: ReactPointerEvent<HTMLCanvasElement>) => { drawing.current = true; canvasRef.current!.setPointerCapture(event.pointerId); const context = canvasRef.current!.getContext('2d')!; const current = point(event); context.beginPath(); context.moveTo(current.x, current.y) }
+  const draw = (event: ReactPointerEvent<HTMLCanvasElement>) => { if (!drawing.current) return; const context = canvasRef.current!.getContext('2d')!; const current = point(event); context.lineWidth = 2.4; context.lineCap = 'round'; context.strokeStyle = '#242729'; context.lineTo(current.x, current.y); context.stroke() }
+  const stopDrawing = () => { if (drawing.current) onChange(canvasRef.current!.toDataURL('image/png')); drawing.current = false }
+  const clear = () => { const canvas = canvasRef.current!; canvas.getContext('2d')!.clearRect(0, 0, canvas.width, canvas.height); onChange(null) }
+  return <div className="signature-wrap audit-signature-pad"><canvas ref={canvasRef} width="900" height="250" onPointerDown={startDrawing} onPointerMove={draw} onPointerUp={stopDrawing} onPointerCancel={stopDrawing} /><span>{label}</span><button type="button" onClick={clear}>Limpar assinatura</button></div>
+}
+
+async function createAuditPdf(record: AuditRecord, responsibleSignature: string, auditedSignature?: string) {
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
   let logo = ''
   try { logo = await fetch('/alert-logo.png').then(response => response.blob()).then(blobToDataUrl) } catch { /* O título mantém o documento identificável. */ }
@@ -195,7 +253,10 @@ async function createAuditPdf(record: AuditRecord) {
   pdf.text(`Pessoa auditada: ${record.auditedName}`, 15, 93)
   pdf.text(`Equipamentos aprovados: ${approved} de ${record.results.length}`, 15, 104)
   pdf.text(`Próxima auditoria: ${new Date(`${record.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR')}`, 15, 115)
-  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(112, 117, 122); pdf.text(`Documento gerado em ${new Date(record.completedAt).toLocaleString('pt-BR')}.`, 15, 132)
+  pdf.setFontSize(9); pdf.text(`Assinatura do responsável: ${record.auditorName}`, 15, 137)
+  pdf.addImage(responsibleSignature, 'PNG', 15, 143, 78, 28); pdf.setDrawColor(120, 124, 126); pdf.line(15, 173, 93, 173)
+  if (auditedSignature) { pdf.text(`Assinatura da pessoa auditada: ${record.auditedName}`, 108, 137); pdf.addImage(auditedSignature, 'PNG', 108, 143, 78, 28); pdf.line(108, 173, 186, 173) }
+  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(112, 117, 122); pdf.text(`Documento gerado em ${new Date(record.completedAt).toLocaleString('pt-BR')}.`, 15, 190)
   pdf.save(record.pdfFileName)
 }
 
