@@ -6,7 +6,30 @@ export type StockRequest = { id: string; code: string; createdAt: string; techni
 export type KmRecord = { id: string; createdAt: string; vehicle: string; driver: string; mileage: number; destination: string; changeDriver: boolean; hasDamage: boolean; damages: { location: string; description: string }[]; latitude?: number; longitude?: number; accuracy?: number }
 export type InventoryItem = { id: string; equipment: string; brand: string; model: string; category: 'Insumo' | 'Ferramenta pessoal' | 'Ferramenta rotativa' | 'EPI' | 'Escada'; unit: 'Unidade' | 'Caixa' | 'Metros' | 'Rolo'; quantity: number; minimum: number; code: string; notes: string }
 export type StockAssignment = { id: string; personId: string; inventoryItemId: string; equipment: string; brand: string; model: string; category: InventoryItem['category']; unit: InventoryItem['unit']; code: string; quantity: number; assignedAt: string; assignedBy: string; notes: string; status: 'Pendente' | 'Aprovado e retirado'; approvedAt?: string }
-export type MaterialUsage = { id: string; personId: string; inventoryItemId: string; quantity: number; declaredDate: string; usedAt: string; location: string; description: string }
+export type MaterialDisposition = 'Instalado no cliente' | 'Devolvido ao estoque' | 'Danificado'
+export type MaterialWorkflowStatus = 'Utilizado' | 'Aguardando recebimento' | 'Recebido' | 'Cancelado'
+export type MaterialUsage = {
+  id: string
+  personId: string
+  personName: string
+  inventoryItemId: string
+  equipment: string
+  brand: string
+  model: string
+  category: InventoryItem['category']
+  unit: InventoryItem['unit']
+  code: string
+  notes: string
+  quantity: number
+  declaredDate: string
+  usedAt: string
+  disposition: MaterialDisposition
+  workflowStatus: MaterialWorkflowStatus
+  description: string
+  photo: string
+  processedAt?: string
+  processedBy?: string
+}
 export type AuditCategory = 'Ferramentas' | 'EPIs' | 'Escadas'
 export type AuditItemResult = { inventoryItemId: string; equipment: string; code: string; answers: { question: string; answer: boolean }[]; photo: string; approved: boolean }
 export type AuditRecord = { id: string; personId: string; category: AuditCategory; auditorName: string; auditedName: string; nextAuditDate: string; startedAt: string; completedAt: string; pdfFileName: string; results: AuditItemResult[] }
@@ -85,7 +108,26 @@ export async function loadAppData(): Promise<AppData> {
         status: item.status === 'Pendente' ? 'Pendente' : 'Aprovado e retirado',
       }
     }),
-    materialUsages: stored.materialUsages ?? [],
+    materialUsages: (stored.materialUsages ?? []).map(item => {
+      const legacy = item as MaterialUsage & { location?: string }
+      const inventoryItem = stored.inventory.find(entry => entry.id === item.inventoryItemId)
+      const disposition = item.disposition ?? 'Instalado no cliente'
+      return {
+        ...item,
+        personName: item.personName ?? stored.people.find(person => person.id === item.personId)?.name ?? stored.account.name,
+        equipment: item.equipment ?? inventoryItem?.equipment ?? 'Item removido',
+        brand: item.brand ?? inventoryItem?.brand ?? '',
+        model: item.model ?? inventoryItem?.model ?? '',
+        category: item.category ?? inventoryItem?.category ?? 'Insumo',
+        unit: item.unit ?? inventoryItem?.unit ?? 'Unidade',
+        code: item.code ?? inventoryItem?.code ?? 'SEM-CODIGO',
+        notes: item.notes ?? inventoryItem?.notes ?? '',
+        disposition,
+        workflowStatus: item.workflowStatus ?? (disposition === 'Instalado no cliente' ? 'Utilizado' : 'Aguardando recebimento'),
+        description: item.description || legacy.location || 'Registro anterior',
+        photo: item.photo ?? '',
+      }
+    }),
     audits: (stored.audits ?? []).map(audit => ({ ...audit, auditorName: audit.auditorName ?? stored.account.name, auditedName: audit.auditedName ?? stored.people.find(person => person.id === audit.personId)?.name ?? 'Pessoa auditada', pdfFileName: audit.pdfFileName ?? 'Relatório anterior' })),
   }
   const account: AdminAccount = {

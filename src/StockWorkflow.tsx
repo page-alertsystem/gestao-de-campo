@@ -1,13 +1,6 @@
-import { FormEvent, useMemo, useState } from 'react'
-import { CheckCircle2, ClipboardCheck, PackageCheck, ShieldCheck } from 'lucide-react'
-import type { AppData, MaterialUsage } from './store'
-
-function personalBalances(data: AppData, personId: string) {
-  const totals = new Map<string, number>()
-  data.stockAssignments.filter(item => item.personId === personId && item.status === 'Aprovado e retirado').forEach(item => totals.set(item.inventoryItemId, (totals.get(item.inventoryItemId) ?? 0) + item.quantity))
-  data.materialUsages.filter(item => item.personId === personId).forEach(item => totals.set(item.inventoryItemId, (totals.get(item.inventoryItemId) ?? 0) - item.quantity))
-  return totals
-}
+import { ChangeEvent, FormEvent, useState } from 'react'
+import { Camera, CheckCircle2, ClipboardCheck, Image, PackageCheck, RotateCcw, ShieldCheck, X } from 'lucide-react'
+import type { AppData, InventoryItem, MaterialDisposition, MaterialUsage, MaterialWorkflowStatus } from './store'
 
 export function StockApprovals({ data, onChange }: { data: AppData; onChange: (data: AppData, message?: string) => void }) {
   const pending = data.stockAssignments.filter(item => item.personId === data.account.id && item.status === 'Pendente')
@@ -18,48 +11,103 @@ export function StockApprovals({ data, onChange }: { data: AppData; onChange: (d
     onChange({ ...data, stockAssignments: data.stockAssignments.map(item => item.id === id ? { ...item, status: 'Aprovado e retirado' as const, approvedAt: new Date().toISOString() } : item) }, `${assignment?.equipment ?? equipment?.equipment ?? 'Equipamento'} incluído no seu estoque.`)
   }
   return <>
-    <section className="page-intro"><div><p className="eyebrow">Meu estoque</p><h2>Aprovações</h2><p>Confirme o recebimento dos equipamentos atribuídos pelo Estoque ou Administrador.</p></div></section>
+    <section className="page-intro"><div><p className="eyebrow">Pessoal</p><h2>Aprovações</h2><p>Confirme o recebimento dos equipamentos atribuídos pelo Estoque ou Administrador.</p></div></section>
     <section className="approval-list">{pending.length ? pending.map(entry => <article className="surface approval-card" key={entry.id}><span><PackageCheck size={24} /></span><div><p className="eyebrow">Aguardando sua confirmação</p><h3>{entry.equipment}</h3><p>{entry.quantity} {entry.unit.toLowerCase()} · {entry.category} · código {entry.code}</p>{(entry.brand || entry.model) && <small>{[entry.brand, entry.model].filter(Boolean).join(' · ')}</small>}<small>Atribuído por {entry.assignedBy} em {new Date(entry.assignedAt).toLocaleString('pt-BR')}</small>{entry.notes && <small>Observação: {entry.notes}</small>}</div><button className="primary-button" onClick={() => approve(entry.id)}><CheckCircle2 size={18} /> Aprovar e confirmar retirada</button></article>) : <section className="surface empty-state"><ShieldCheck size={30} /><h3>Nenhuma aprovação pendente</h3><p>Quando um equipamento for atribuído a você, a solicitação aparecerá aqui.</p></section>}</section>
     {approved.length > 0 && <section className="surface table-surface approval-history"><div className="table-toolbar"><div><p className="eyebrow">Histórico</p><h3>Equipamentos aprovados e retirados</h3></div></div><div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Código</th><th>Quantidade</th><th>Atribuído por</th><th>Aprovado e retirado em</th></tr></thead><tbody>{approved.map(entry => <tr key={entry.id}><td>{entry.equipment}</td><td>{entry.code}</td><td>{entry.quantity} {entry.unit.toLowerCase()}</td><td>{entry.assignedBy}</td><td>{entry.approvedAt ? new Date(entry.approvedAt).toLocaleString('pt-BR') : 'Registro anterior'}</td></tr>)}</tbody></table></div></section>}
   </>
 }
 
-export function MaterialUsagePage({ data, onChange }: { data: AppData; onChange: (data: AppData, message?: string) => void }) {
-  const balances = useMemo(() => personalBalances(data, data.account.id), [data])
-  const availableItems = data.inventory.filter(item => (balances.get(item.id) ?? 0) > 0)
-  const [itemId, setItemId] = useState('')
+export function MaterialWriteOffModal({ data, item, available, onClose, onChange }: { data: AppData; item: InventoryItem; available: number; onClose: () => void; onChange: (data: AppData, message?: string) => void }) {
+  const isSupply = item.category === 'Insumo'
+  const options: MaterialDisposition[] = isSupply ? ['Instalado no cliente', 'Devolvido ao estoque'] : ['Devolvido ao estoque', 'Danificado']
   const [quantity, setQuantity] = useState('1')
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
-  const [location, setLocation] = useState('')
+  const [disposition, setDisposition] = useState<MaterialDisposition>(options[0])
   const [description, setDescription] = useState('')
-  const selectedItem = data.inventory.find(item => item.id === itemId)
-  const available = balances.get(itemId) ?? 0
-  const invalidQuantity = Number(quantity) <= 0 || Number(quantity) > available
+  const [photo, setPhoto] = useState('')
+  const amount = Number(quantity)
+  const invalidQuantity = !Number.isFinite(amount) || amount <= 0 || amount > available
+
+  const capturePhoto = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => setPhoto(String(reader.result ?? ''))
+    reader.readAsDataURL(file)
+  }
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (!selectedItem || invalidQuantity) return
-    const usage: MaterialUsage = { id: crypto.randomUUID(), personId: data.account.id, inventoryItemId: selectedItem.id, quantity: Number(quantity), declaredDate: date, usedAt: new Date().toISOString(), location: location.trim(), description: description.trim() }
-    onChange({ ...data, materialUsages: [...data.materialUsages, usage] }, `Baixa de ${selectedItem.equipment} registrada.`)
-    setItemId(''); setQuantity('1'); setLocation(''); setDescription('')
+    if (invalidQuantity || !description.trim() || !photo) return
+    const workflowStatus: MaterialWorkflowStatus = disposition === 'Instalado no cliente' ? 'Utilizado' : 'Aguardando recebimento'
+    const usage: MaterialUsage = {
+      id: crypto.randomUUID(), personId: data.account.id, personName: data.account.name, inventoryItemId: item.id,
+      equipment: item.equipment, brand: item.brand, model: item.model, category: item.category, unit: item.unit,
+      code: item.code, notes: item.notes, quantity: amount, declaredDate: new Date().toISOString().slice(0, 10),
+      usedAt: new Date().toISOString(), disposition, workflowStatus, description: description.trim(), photo,
+    }
+    onChange({ ...data, materialUsages: [...data.materialUsages, usage] }, `Baixa de ${item.equipment} registrada.`)
+    onClose()
   }
 
-  const history = data.materialUsages.filter(item => item.personId === data.account.id).reverse()
+  return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={`Dar baixa em ${item.equipment}`}>
+    <button className="modal-backdrop" onClick={onClose} aria-label="Fechar" />
+    <form className="quick-modal writeoff-modal" onSubmit={submit}>
+      <div className="modal-heading"><div><p className="eyebrow">Estoque pessoal</p><h2>Dar baixa no equipamento</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button></div>
+      <div className="writeoff-item-summary"><PackageCheck size={22} /><div><b>{item.equipment}</b><span>{item.category} · código {item.code}</span><small>Disponível: {available} {item.unit.toLowerCase()}</small></div></div>
+      <div className="form-grid writeoff-fields">
+        <label>Quantidade<input type="number" min="0.01" max={available} step={item.unit === 'Metros' ? '0.01' : '1'} value={quantity} onChange={event => setQuantity(event.target.value)} required /></label>
+        <label>Situação<select value={disposition} onChange={event => setDisposition(event.target.value as MaterialDisposition)} required>{options.map(option => <option key={option}>{option}</option>)}</select></label>
+        <label className="full">Detalhes da baixa<textarea value={description} onChange={event => setDescription(event.target.value)} placeholder="Informe o motivo e todos os detalhes da baixa" required /></label>
+      </div>
+      {invalidQuantity && <p className="assignment-warning">A quantidade deve ser maior que zero e não pode ultrapassar o saldo disponível.</p>}
+      <label className={photo ? 'writeoff-photo-field filled' : 'writeoff-photo-field'}>
+        <input type="file" accept="image/*" capture="environment" onChange={capturePhoto} required={!photo} />
+        {photo ? <><img src={photo} alt="Foto da baixa" /><span><CheckCircle2 size={18} /> Foto registrada pela câmera</span></> : <><Camera size={28} /><b>Tirar foto pela câmera</b><small>A foto é obrigatória para concluir a baixa</small></>}
+      </label>
+      <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button><button className="primary-button" disabled={invalidQuantity || !description.trim() || !photo}><ClipboardCheck size={18} /> Confirmar baixa</button></div>
+    </form>
+  </div>
+}
+
+function statusTone(status: MaterialWorkflowStatus) {
+  if (status === 'Cancelado') return 'danger'
+  if (status === 'Aguardando recebimento') return 'warning'
+  return 'success'
+}
+
+export function MaterialWriteOffsPage({ data, onChange }: { data: AppData; onChange: (data: AppData, message?: string) => void }) {
+  const entries = [...data.materialUsages].sort((a, b) => b.usedAt.localeCompare(a.usedAt))
+  const updateStatus = (entry: MaterialUsage, status: 'Recebido' | 'Cancelado') => {
+    if (entry.workflowStatus !== 'Aguardando recebimento') return
+    const inventory = status === 'Recebido' && entry.disposition === 'Devolvido ao estoque'
+      ? data.inventory.map(item => item.id === entry.inventoryItemId ? { ...item, quantity: item.quantity + entry.quantity } : item)
+      : data.inventory
+    const materialUsages = data.materialUsages.map(item => item.id === entry.id ? { ...item, workflowStatus: status, processedAt: new Date().toISOString(), processedBy: data.account.name } : item)
+    onChange({ ...data, inventory, materialUsages }, status === 'Recebido' ? `${entry.equipment} recebido pelo estoque.` : `Baixa de ${entry.equipment} cancelada.`)
+  }
+
   return <>
-    <section className="page-intro"><div><p className="eyebrow">Meu estoque</p><h2>Materiais utilizados</h2><p>Informe o material utilizado para dar baixa na quantidade do seu estoque pessoal.</p></div></section>
-    <section className="stock-management-grid">
-      <form className="surface assignment-form" onSubmit={submit}>
-        <div className="section-heading"><div><p className="eyebrow">Nova baixa</p><h3>Registrar utilização</h3></div><ClipboardCheck size={21} /></div>
-        <label>Equipamento<select value={itemId} onChange={event => setItemId(event.target.value)} required><option value="">Selecione</option>{availableItems.map(item => <option value={item.id} key={item.id}>{item.equipment} · disponível {balances.get(item.id)} {item.unit.toLowerCase()}</option>)}</select></label>
-        <label>Quantidade utilizada<input type="number" min="0.01" max={available || undefined} step={selectedItem?.unit === 'Metros' ? '0.01' : '1'} value={quantity} onChange={event => setQuantity(event.target.value)} required /></label>
-        <label>Data da utilização<input type="date" max={new Date().toISOString().slice(0, 10)} value={date} onChange={event => setDate(event.target.value)} required /></label>
-        <label>Local, cliente ou atividade<input value={location} onChange={event => setLocation(event.target.value)} placeholder="Onde o material foi utilizado" required /></label>
-        <label>Descrição do uso<textarea value={description} onChange={event => setDescription(event.target.value)} placeholder="Descreva o serviço e como o material foi utilizado" required /></label>
-        {itemId && <p className={invalidQuantity ? 'assignment-warning' : 'assignment-balance'}>Saldo pessoal disponível: {available} {selectedItem?.unit.toLowerCase()}.</p>}
-        <button className="primary-button full" disabled={!itemId || invalidQuantity}><ClipboardCheck size={18} /> Registrar material utilizado</button>
-      </form>
-      <section className="surface table-surface"><div className="table-toolbar"><div><p className="eyebrow">Estoque pessoal</p><h3>Saldos disponíveis</h3></div></div><div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Categoria</th><th>Quantidade</th></tr></thead><tbody>{availableItems.length ? availableItems.map(item => <tr key={item.id}><td>{item.equipment}</td><td>{item.category}</td><td>{balances.get(item.id)} {item.unit.toLowerCase()}</td></tr>) : <tr><td colSpan={3} className="table-empty">Você não possui materiais disponíveis para baixa.</td></tr>}</tbody></table></div></section>
+    <section className="page-intro"><div><p className="eyebrow">Estoque e administração</p><h2>Baixa de Materiais</h2><p>Acompanhe as baixas realizadas pelas pessoas e confirme o recebimento das devoluções ou itens danificados.</p></div></section>
+    <section className="writeoff-summary-grid">
+      <article className="surface writeoff-summary"><ClipboardCheck size={22} /><div><b>{entries.length}</b><span>Baixas registradas</span></div></article>
+      <article className="surface writeoff-summary warning"><RotateCcw size={22} /><div><b>{entries.filter(item => item.workflowStatus === 'Aguardando recebimento').length}</b><span>Aguardando recebimento</span></div></article>
+      <article className="surface writeoff-summary"><CheckCircle2 size={22} /><div><b>{entries.filter(item => item.workflowStatus === 'Recebido').length}</b><span>Recebidas pelo estoque</span></div></article>
     </section>
-    <section className="surface table-surface assignment-history"><div className="table-toolbar"><div><p className="eyebrow">Histórico</p><h3>Utilizações registradas</h3></div></div><div className="responsive-table"><table><thead><tr><th>Data informada</th><th>Equipamento</th><th>Quantidade</th><th>Local/atividade</th><th>Descrição</th></tr></thead><tbody>{history.length ? history.map(entry => { const item = data.inventory.find(inventory => inventory.id === entry.inventoryItemId); return <tr key={entry.id}><td>{new Date(`${entry.declaredDate}T12:00:00`).toLocaleDateString('pt-BR')}</td><td>{item?.equipment ?? 'Item removido'}</td><td>{entry.quantity} {item?.unit.toLowerCase()}</td><td>{entry.location}</td><td>{entry.description}</td></tr> }) : <tr><td colSpan={5} className="table-empty">Nenhuma utilização registrada.</td></tr>}</tbody></table></div></section>
+    <section className="writeoff-list">{entries.length ? entries.map(entry => <article className="surface writeoff-card" key={entry.id}>
+      <div className="writeoff-card-photo">{entry.photo ? <img src={entry.photo} alt={`Foto da baixa de ${entry.equipment}`} /> : <span><Image size={25} /><small>Registro anterior<br />sem foto</small></span>}</div>
+      <div className="writeoff-card-content">
+        <div className="writeoff-card-heading"><div><p className="eyebrow">{entry.personName}</p><h3>{entry.equipment}</h3></div><span className={`status ${statusTone(entry.workflowStatus)}`}>{entry.workflowStatus}</span></div>
+        <div className="writeoff-details">
+          <span><small>Categoria</small><b>{entry.category}</b></span><span><small>Código</small><b>{entry.code}</b></span>
+          <span><small>Marca / modelo</small><b>{[entry.brand, entry.model].filter(Boolean).join(' · ') || 'Não informado'}</b></span>
+          <span><small>Quantidade</small><b>{entry.quantity} {entry.unit.toLowerCase()}</b></span>
+          <span><small>Situação informada</small><b>{entry.disposition}</b></span><span><small>Registro</small><b>{new Date(entry.usedAt).toLocaleString('pt-BR')}</b></span>
+        </div>
+        {entry.notes && <p className="writeoff-notes"><b>Informações do equipamento:</b> {entry.notes}</p>}
+        <p className="writeoff-description"><b>Detalhes da baixa:</b> {entry.description}</p>
+        {entry.processedAt && <small className="writeoff-processed">Processado por {entry.processedBy} em {new Date(entry.processedAt).toLocaleString('pt-BR')}</small>}
+        {entry.workflowStatus === 'Aguardando recebimento' && <div className="writeoff-actions"><button className="secondary-button danger-button" onClick={() => updateStatus(entry, 'Cancelado')}><X size={17} /> Cancelar baixa</button><button className="primary-button" onClick={() => updateStatus(entry, 'Recebido')}><CheckCircle2 size={17} /> Marcar como recebido</button></div>}
+      </div>
+    </article>) : <section className="surface empty-state"><ClipboardCheck size={30} /><h3>Nenhuma baixa registrada</h3><p>As baixas realizadas nas áreas pessoais de Ferramentas, Insumos e EPIs aparecerão aqui.</p></section>}</section>
   </>
 }

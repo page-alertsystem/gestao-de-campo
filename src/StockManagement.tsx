@@ -18,7 +18,7 @@ export function StockManagement({ data, onChange }: { data: AppData; onChange: (
     const existingItem = data.inventory.find(item => item.code.trim().toUpperCase() === normalizedCode)
     const inventoryItem: InventoryItem = existingItem ?? {
       id: crypto.randomUUID(), equipment: form.equipment.trim(), brand: form.brand.trim(), model: form.model.trim(),
-      category: form.category, unit: form.unit, quantity: 0, minimum: 0, code: normalizedCode, notes: 'Criado automaticamente pela Gestão de Estoque.',
+      category: form.category, unit: form.unit, quantity: 0, minimum: 0, code: normalizedCode, notes: 'Criado automaticamente pelo Gerenciamento de Estoque.',
     }
     const assignment: StockAssignment = {
       id: crypto.randomUUID(), personId: selectedPerson.id, inventoryItemId: inventoryItem.id,
@@ -37,7 +37,7 @@ export function StockManagement({ data, onChange }: { data: AppData; onChange: (
   }
 
   return <>
-    <section className="page-intro"><div><p className="eyebrow">Estoque e administração</p><h2>Gestão de estoque</h2><p>Preencha os dados do equipamento e vincule diretamente à pessoa responsável.</p></div></section>
+    <section className="page-intro"><div><p className="eyebrow">Estoque e administração</p><h2>Gerenciamento de estoque</h2><p>Preencha os dados do equipamento e vincule diretamente à pessoa responsável.</p></div></section>
     <form className="surface simple-assignment-form" onSubmit={submit}>
       <div className="section-heading"><div><p className="eyebrow">Nova atribuição</p><h3>Vincular equipamento à pessoa</h3></div><PackageCheck size={22} /></div>
       <div className="simple-assignment-grid">

@@ -30,7 +30,7 @@ export type AuditStart = { category: AuditCategory; personId: string; personName
 function itemsForAudit(data: AppData, category: AuditCategory, personId: string) {
   const totals = new Map<string, number>()
   data.stockAssignments.filter(item => item.personId === personId && item.status === 'Aprovado e retirado').forEach(item => totals.set(item.inventoryItemId, (totals.get(item.inventoryItemId) ?? 0) + item.quantity))
-  data.materialUsages.filter(item => item.personId === personId).forEach(item => totals.set(item.inventoryItemId, (totals.get(item.inventoryItemId) ?? 0) - item.quantity))
+  data.materialUsages.filter(item => item.personId === personId && item.workflowStatus !== 'Cancelado').forEach(item => totals.set(item.inventoryItemId, (totals.get(item.inventoryItemId) ?? 0) - item.quantity))
   return data.inventory.filter(item => {
     const matches = category === 'Ferramentas' ? item.category.includes('Ferramenta') : category === 'EPIs' ? item.category === 'EPI' : item.category === 'Escada'
     return matches && (totals.get(item.id) ?? 0) > 0
