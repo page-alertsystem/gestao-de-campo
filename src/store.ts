@@ -64,6 +64,32 @@ export type AuditItemResult = { inventoryItemId: string; equipment: string; code
 export type AuditRecord = { id: string; personId: string; category: AuditCategory; auditorName: string; auditedName: string; nextAuditDate: string; startedAt: string; completedAt: string; pdfFileName: string; results: AuditItemResult[] }
 export type Notification = { id: string; title: string; detail: string; createdAt: string; read: boolean; critical: boolean }
 export type AdminAccount = { id: string; name: string; email: string; passwordHash: string; mustChangePassword: boolean }
+export type RmaUrgency = 'Baixa' | 'Normal' | 'Alta' | 'Urgente'
+export type RmaStatus = 'Aguardando integração Movidesk' | 'Enviado ao Movidesk' | 'Pedido recebido'
+export type RmaRequest = {
+  id: string
+  localCode: string
+  movideskTicketId: string
+  title: string
+  client: string
+  equipment: string
+  withdrawalDate: string
+  technicianId: string
+  technicianName: string
+  service: string
+  category: string
+  urgency: RmaUrgency
+  details: string
+  photo: string
+  createdAt: string
+  status: RmaStatus
+  sentToMovideskAt?: string
+  integrationError?: string
+  receivedAt?: string
+  receivedBy?: string
+  printCount: number
+  lastPrintedAt?: string
+}
 
 export type AppData = {
   account: AdminAccount
@@ -77,6 +103,7 @@ export type AppData = {
   stockAssignments: StockAssignment[]
   materialUsages: MaterialUsage[]
   audits: AuditRecord[]
+  rmaRequests: RmaRequest[]
   notifications: Notification[]
   permissions: string[]
 }
@@ -183,6 +210,18 @@ export async function loadAppData(): Promise<AppData> {
       }
     }),
     audits: (stored.audits ?? []).map(audit => ({ ...audit, auditorName: audit.auditorName ?? stored.account.name, auditedName: audit.auditedName ?? stored.people.find(person => person.id === audit.personId)?.name ?? 'Pessoa auditada', pdfFileName: audit.pdfFileName ?? 'Relatório anterior' })),
+    rmaRequests: (stored.rmaRequests ?? []).map(item => ({
+      ...item,
+      localCode: item.localCode ?? `RMA-${item.id.slice(0, 8).toUpperCase()}`,
+      movideskTicketId: item.movideskTicketId ?? '',
+      title: item.title ?? `RMA: Manutenção - ${item.equipment} - ${item.client}`,
+      service: item.service ?? 'Manutenção',
+      category: item.category ?? 'RMA',
+      urgency: item.urgency ?? 'Normal',
+      photo: item.photo ?? '',
+      status: item.status ?? 'Aguardando integração Movidesk',
+      printCount: item.printCount ?? 0,
+    })),
   }
   const account: AdminAccount = {
     id: crypto.randomUUID(),
@@ -194,7 +233,7 @@ export async function loadAppData(): Promise<AppData> {
   const initial: AppData = {
     account,
     people: [{ id: account.id, name: account.name, email: account.email, groups: ['Administrador'], active: true, canLogin: true }],
-    clients: [], vehicles: [], trajectories: [], stockRequests: [], kmRecords: [], inventory: [], stockAssignments: [], materialUsages: [], audits: [], notifications: [], permissions: [],
+    clients: [], vehicles: [], trajectories: [], stockRequests: [], kmRecords: [], inventory: [], stockAssignments: [], materialUsages: [], audits: [], rmaRequests: [], notifications: [], permissions: [],
   }
   await saveAppData(initial)
   return initial

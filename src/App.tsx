@@ -12,9 +12,10 @@ import { StockOrdersPage, StockRequestsPage } from './StockOrders'
 import { MaterialWriteOffModal, MaterialWriteOffsPage, StockApprovals } from './StockWorkflow'
 import { AuditPage, AuditWizard, type AuditStart } from './AuditModule'
 import { AdminCatalogs } from './AdminCatalogs'
+import { DamagedEquipmentPage, RmaRequestPage } from './MaintenanceModule'
 import { formatQuantity, hashPassword, loadAppData, saveAppData, type AppData, type InventoryItem, type StockRequest } from './store'
 
-type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'gestao-auditoria' | 'gestao-solicitacoes' | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes' | 'estoque-pedidos' | 'estoque-baixas' | 'estoque-gerenciamento' | 'relatorios' | 'configuracoes'
+type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'gestao-auditoria' | 'gestao-solicitacoes' | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes' | 'estoque-pedidos' | 'estoque-baixas' | 'estoque-gerenciamento' | 'manutencao-rma' | 'manutencao-danificados' | 'relatorios' | 'configuracoes'
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
 
@@ -24,6 +25,7 @@ const nav: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[]
   { id: 'gestao-auditoria', label: 'Gestão', icon: ClipboardCheck },
   { id: 'pessoal-ferramentas', label: 'Pessoal', icon: Users },
   { id: 'estoque-baixas', label: 'Estoque', icon: Boxes },
+  { id: 'manutencao-rma', label: 'Manutenção', icon: Wrench },
   { id: 'relatorios', label: 'Relatórios', icon: FileBarChart },
   { id: 'configuracoes', label: 'Configurações', icon: Settings },
 ]
@@ -57,10 +59,15 @@ const managementPages: { id: Page; label: string; icon: ComponentType<{ size?: n
   { id: 'gestao-auditoria', label: 'Auditoria', icon: ShieldCheck },
   { id: 'gestao-solicitacoes', label: 'Solicitações ao estoque', icon: PackageCheck },
 ]
+const maintenancePages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
+  { id: 'manutencao-rma', label: 'RMA', icon: Wrench },
+  { id: 'manutencao-danificados', label: 'Equipamentos danificados', icon: PackageCheck },
+]
 const isOperationPage = (page: Page) => page.startsWith('operacao-')
 const isManagementPage = (page: Page) => page.startsWith('gestao-')
 const isPersonalPage = (page: Page) => page.startsWith('pessoal-')
 const isStockPage = (page: Page) => page.startsWith('estoque-')
+const isMaintenancePage = (page: Page) => page.startsWith('manutencao-')
 
 const todayInput = () => new Date().toISOString().slice(0, 10)
 const nowInput = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
@@ -76,6 +83,7 @@ export default function App() {
   const [managementOpen, setManagementOpen] = useState(false)
   const [personalOpen, setPersonalOpen] = useState(false)
   const [stockOpen, setStockOpen] = useState(false)
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false)
   const [activeAction, setActiveAction] = useState<ActionName | null>(null)
   const [permissionsOpen, setPermissionsOpen] = useState(false)
   const [kmOpen, setKmOpen] = useState(false)
@@ -121,6 +129,7 @@ export default function App() {
     if (isManagementPage(next)) setManagementOpen(true)
     if (isPersonalPage(next)) setPersonalOpen(true)
     if (isStockPage(next)) setStockOpen(true)
+    if (isMaintenancePage(next)) setMaintenanceOpen(true)
     setDrawer(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -158,7 +167,7 @@ export default function App() {
   const currentPerson = data.people.find(person => person.id === data.account.id)
   const canManageStock = currentPerson?.groups.some(group => group === 'Administrador' || group === 'Estoque') ?? false
   const visibleStockPages = stockPages.filter(item => item.id !== 'estoque-gerenciamento' || canManageStock)
-  const title = operationPages.find(item => item.id === page)?.label ?? managementPages.find(item => item.id === page)?.label ?? personalPages.find(item => item.id === page)?.label ?? stockPages.find(item => item.id === page)?.label ?? nav.find(item => item.id === page)?.label ?? 'Início'
+  const title = operationPages.find(item => item.id === page)?.label ?? managementPages.find(item => item.id === page)?.label ?? personalPages.find(item => item.id === page)?.label ?? stockPages.find(item => item.id === page)?.label ?? maintenancePages.find(item => item.id === page)?.label ?? nav.find(item => item.id === page)?.label ?? 'Início'
 
   return <div className="app-shell">
     <aside className={drawer ? 'sidebar open' : 'sidebar'}>
@@ -205,6 +214,15 @@ export default function App() {
               return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
             })}</div>}
           </div>
+          if (item.label === 'Manutenção') return <div className="nav-group" key={item.id}>
+            <button className={isMaintenancePage(page) ? 'nav-item active' : 'nav-item'} onClick={() => setMaintenanceOpen(current => !current)} aria-expanded={maintenanceOpen}>
+              <Icon size={20} /><span>{item.label}</span><ChevronDown className={maintenanceOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
+            </button>
+            {maintenanceOpen && <div className="nav-submenu">{maintenancePages.map(subitem => {
+              const SubIcon = subitem.icon
+              return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
+            })}</div>}
+          </div>
           return <button key={item.id} className={page === item.id ? 'nav-item active' : 'nav-item'} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label}</span></button>
         })}
       </nav>
@@ -247,6 +265,8 @@ export default function App() {
         {page === 'estoque-baixas' && <MaterialWriteOffsPage data={data} onChange={updateData} />}
         {page === 'estoque-pedidos' && <StockOrdersPage data={data} onChange={updateData} />}
         {page === 'estoque-gerenciamento' && canManageStock && <StockManagement data={data} onChange={updateData} />}
+        {page === 'manutencao-rma' && <RmaRequestPage data={data} onChange={updateData} />}
+        {page === 'manutencao-danificados' && <DamagedEquipmentPage data={data} onChange={updateData} />}
         {page === 'relatorios' && <ReportsPage data={data} />}
         {page === 'configuracoes' && <SettingsPage data={data} onChange={updateData} onOpenPermissions={() => setPermissionsOpen(true)} />}
       </main>
@@ -254,7 +274,7 @@ export default function App() {
       <nav className="mobile-nav" aria-label="Navegação móvel">
         {nav.map(item => {
           const Icon = item.icon
-          const active = item.label === 'Operação' ? isOperationPage(page) : item.label === 'Gestão' ? isManagementPage(page) : item.label === 'Pessoal' ? isPersonalPage(page) : item.label === 'Estoque' ? isStockPage(page) : page === item.id
+          const active = item.label === 'Operação' ? isOperationPage(page) : item.label === 'Gestão' ? isManagementPage(page) : item.label === 'Pessoal' ? isPersonalPage(page) : item.label === 'Estoque' ? isStockPage(page) : item.label === 'Manutenção' ? isMaintenancePage(page) : page === item.id
           return <button key={item.id} className={active ? 'active' : ''} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label === 'Configurações' ? 'Mais' : item.label}</span></button>
         })}
       </nav>
@@ -414,16 +434,16 @@ function StockPage({ section, data, onChange }: { section: Page; data: AppData; 
 }
 
 function ReportsPage({ data }: { data: AppData }) {
-  const reports = ['Trajetos', 'Pontos esquecidos', 'Quilometragem', 'Estoque por técnico', 'Solicitações', 'Auditorias de ferramentas', 'Auditorias de EPI', 'Histórico de ações']
+  const reports = ['Trajetos', 'Pontos esquecidos', 'Quilometragem', 'Estoque por técnico', 'Solicitações', 'RMA e equipamentos danificados', 'Auditorias de ferramentas', 'Auditorias de EPI', 'Histórico de ações']
   return <>
     <PageIntro eyebrow="Informação para decisão" title="Relatórios" description="Consulte apenas as informações liberadas para o seu grupo de acesso." />
-    <section className="attention-grid"><Metric icon={Route} value={String(data.trajectories.length)} label="Trajetos" /><Metric icon={CarFront} value={String(data.kmRecords.length)} label="Registros de KM" /><Metric icon={PackageCheck} value={String(data.stockRequests.length)} label="Solicitações" /><Metric icon={Users} value={String(data.people.length)} label="Pessoas" /></section>
+    <section className="attention-grid"><Metric icon={Route} value={String(data.trajectories.length)} label="Trajetos" /><Metric icon={CarFront} value={String(data.kmRecords.length)} label="Registros de KM" /><Metric icon={PackageCheck} value={String(data.stockRequests.length)} label="Solicitações" /><Metric icon={Wrench} value={String(data.rmaRequests.length)} label="Registros de RMA" /></section>
     <section className="report-grid">{reports.map((report, index) => <button className="report-card" key={report} onClick={() => exportReport(report, data)}><span><FileBarChart size={22} /></span><div><b>{report}</b><small>{index < 3 ? 'Baixar dados registrados' : 'Exportação disponível conforme os dados'}</small></div><Download size={19} /></button>)}</section>
   </>
 }
 
 function SettingsPage({ data, onChange, onOpenPermissions }: { data: AppData; onChange: (data: AppData, message: string) => void; onOpenPermissions: () => void }) {
-  const departments = ['Técnico', 'RH', 'Logística', 'Estoque', 'Auditor', 'Seg. Trabalho']
+  const departments = ['Técnico', 'RH', 'Logística', 'Estoque', 'RMA', 'Auditor', 'Seg. Trabalho']
   return <>
     <PageIntro eyebrow="Administração" title="Configurações e acessos" description="Cadastre a operação e defina exatamente o que cada departamento pode fazer." action={<button className="primary-button"><Plus size={18} /> Cadastrar pessoa</button>} />
     <section className="settings-grid"><button className="setting-card"><Users size={22} /><div><b>Pessoas e grupos</b><small>{data.people.length} pessoas cadastradas</small></div><ChevronRight size={18} /></button><button className="setting-card"><Warehouse size={22} /><div><b>Clientes e veículos</b><small>{data.clients.length} clientes · {data.vehicles.length} veículos</small></div><ChevronRight size={18} /></button><button className="setting-card"><ShieldCheck size={22} /><div><b>Histórico de segurança</b><small>Administrador com acesso total</small></div><ChevronRight size={18} /></button></section>
@@ -485,6 +505,7 @@ function exportReport(name: string, data: AppData) {
   if (name === 'Trajetos' || name === 'Pontos esquecidos') rows = [...rows, ...data.trajectories.filter(item => name === 'Trajetos' ? item.type !== 'Esqueci meu ponto' : item.type === 'Esqueci meu ponto').map(item => [item.type, `${item.declaredDate} ${item.declaredTime}`, item.author, `${item.client} ${item.observation}`])]
   else if (name === 'Quilometragem') rows = [...rows, ...data.kmRecords.map(item => ['KM', item.createdAt, item.driver, `${item.vehicle} · ${item.mileage} km · ${item.destination}`])]
   else if (name === 'Solicitações') rows = [...rows, ...data.stockRequests.map(item => [item.code, item.createdAt, item.technician, `${item.items} itens · ${item.status}`])]
+  else if (name === 'RMA e equipamentos danificados') rows = [...rows, ...data.rmaRequests.map(item => [item.movideskTicketId || item.localCode, item.withdrawalDate, item.technicianName, `${item.client} · ${item.equipment} · ${item.status}`])]
   else rows = [...rows, ['Resumo', new Date().toLocaleString('pt-BR'), data.account.name, `Pessoas: ${data.people.length} · Clientes: ${data.clients.length} · Veículos: ${data.vehicles.length} · Itens: ${data.inventory.length}`]]
   const csv = '\ufeff' + rows.map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(';')).join('\n')
   const link = document.createElement('a')

@@ -3,7 +3,7 @@ import { Check, Search, ShieldCheck, X } from 'lucide-react'
 
 const departments = [
   'Técnico de Campo', 'RH', 'Financeiro', 'Logística', 'Estoque',
-  'Service Desk', 'Implantação', 'Auditor', 'Segurança do Trabalho',
+  'Service Desk', 'Implantação', 'RMA', 'Auditor', 'Segurança do Trabalho',
 ]
 
 const groups = [
@@ -19,6 +19,7 @@ const groups = [
   { name: 'EPIs', permissions: ['Visualizar EPIs', 'Cadastrar tipo de EPI', 'Editar EPI', 'Registrar entrega de EPI', 'Confirmar recebimento de EPI', 'Assinar termo de entrega', 'Visualizar validade e CA', 'Bloquear EPI', 'Liberar EPI', 'Registrar substituição', 'Gerar termo de responsabilidade', 'Exportar EPIs'] },
   { name: 'Auditoria de EPIs', permissions: ['Iniciar auditoria de EPI', 'Visualizar auditorias de EPI', 'Responder checklist de EPI', 'Definir próxima auditoria de EPI', 'Aprovar EPI', 'Aprovar EPI com observação', 'Indicar substituição de EPI', 'Bloquear uso de EPI', 'Liberar EPI', 'Gerar PDF de auditoria de EPI', 'Exportar auditorias de EPI'] },
   { name: 'Quilometragem', permissions: ['Registrar quilometragem', 'Visualizar própria quilometragem do dia', 'Visualizar registros de KM de todos', 'Visualizar histórico de KM do veículo', 'Registrar troca de condutor', 'Registrar avarias', 'Gerar PDF da troca', 'Visualizar dados escritos da troca', 'Exportar relatório de KM'] },
+  { name: 'Manutenção e RMA', permissions: ['Criar solicitação de RMA', 'Visualizar próprias solicitações de RMA', 'Visualizar todos os equipamentos danificados', 'Confirmar recebimento de equipamento danificado', 'Reimprimir comprovante térmico', 'Visualizar ticket do Movidesk', 'Exportar registros de RMA'] },
   { name: 'Notificações', permissions: ['Receber notificações', 'Visualizar notificações', 'Visualizar histórico de notificações', 'Visualizar alertas de saldo', 'Visualizar alertas de auditoria', 'Visualizar alertas de solicitações', 'Visualizar alertas de ponto esquecido'] },
   { name: 'Relatórios', permissions: ['Visualizar relatórios de trajetos', 'Exportar trajetos para Excel', 'Visualizar relatórios de ponto', 'Exportar pontos para Excel', 'Visualizar relatórios de KM', 'Exportar KM para Excel', 'Visualizar relatórios de estoque', 'Exportar estoque para Excel', 'Visualizar relatórios de solicitações', 'Exportar solicitações para Excel', 'Visualizar relatórios de auditoria', 'Exportar auditorias para Excel', 'Visualizar histórico de ações'] },
 ]
@@ -32,6 +33,9 @@ const defaultEnabled = new Set([
   'RH::Adicionar parecer', 'Estoque::Visualizar estoque central', 'Estoque::Cadastrar item',
   'Estoque::Visualizar todas as solicitações', 'Auditor::Iniciar auditoria de ferramentas',
   'Auditor::Iniciar auditoria de EPI', 'Segurança do Trabalho::Visualizar EPIs',
+  'Técnico de Campo::Criar solicitação de RMA', 'Técnico de Campo::Visualizar próprias solicitações de RMA',
+  'RMA::Visualizar todos os equipamentos danificados', 'RMA::Confirmar recebimento de equipamento danificado',
+  'RMA::Reimprimir comprovante térmico', 'RMA::Visualizar ticket do Movidesk',
 ])
 
 export function PermissionMatrix({ initial, onClose, onSaved }: { initial: string[]; onClose: () => void; onSaved: (permissions: string[]) => void }) {
