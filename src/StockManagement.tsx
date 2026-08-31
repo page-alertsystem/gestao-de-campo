@@ -1,6 +1,7 @@
 import { FormEvent, useState } from 'react'
 import { PackageCheck, Plus } from 'lucide-react'
 import { formatQuantity, parseQuantity, type AppData, type InventoryItem, type StockAssignment } from './store'
+import { EquipmentRequestBlock } from './StockOrders'
 
 const emptyForm = { personId: '', category: 'Ferramenta pessoal' as InventoryItem['category'], equipment: '', brand: '', model: '', code: '', unit: 'Unidade' as InventoryItem['unit'], quantity: '1', notes: '' }
 
@@ -38,6 +39,7 @@ export function StockManagement({ data, onChange }: { data: AppData; onChange: (
 
   return <>
     <section className="page-intro"><div><p className="eyebrow">Estoque e administração</p><h2>Gerenciamento de estoque</h2><p>Preencha os dados do equipamento e vincule diretamente à pessoa responsável.</p></div></section>
+    <EquipmentRequestBlock data={data} onChange={onChange} />
     <form className="surface simple-assignment-form" onSubmit={submit}>
       <div className="section-heading"><div><p className="eyebrow">Nova atribuição</p><h3>Vincular equipamento à pessoa</h3></div><PackageCheck size={22} /></div>
       <div className="simple-assignment-grid">

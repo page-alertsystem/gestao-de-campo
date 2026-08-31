@@ -1,6 +1,6 @@
 import { FormEvent, type ComponentType, type ReactNode, useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle, Bell, Boxes, CalendarClock, CarFront, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck,
+  AlertTriangle, Bell, Boxes, CalendarClock, CarFront, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck, ClipboardList,
   Download, FileBarChart, Home, LogOut, MapPin, Menu, PackageCheck, Plus, Route,
   Search, Settings, ShieldCheck, Signal, SignalZero, Users, Warehouse, Wrench, X,
 } from 'lucide-react'
@@ -8,12 +8,13 @@ import { PermissionMatrix } from './PermissionMatrix'
 import { KmForm } from './KmForm'
 import { StockRequestForm } from './StockRequestForm'
 import { StockManagement } from './StockManagement'
+import { StockOrdersPage, StockRequestsPage } from './StockOrders'
 import { MaterialWriteOffModal, MaterialWriteOffsPage, StockApprovals } from './StockWorkflow'
 import { AuditPage, AuditWizard, type AuditStart } from './AuditModule'
 import { AdminCatalogs } from './AdminCatalogs'
-import { formatQuantity, hashPassword, loadAppData, saveAppData, type AppData, type InventoryItem } from './store'
+import { formatQuantity, hashPassword, loadAppData, saveAppData, type AppData, type InventoryItem, type StockRequest } from './store'
 
-type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'gestao-auditoria' | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes' | 'estoque-baixas' | 'estoque-gerenciamento' | 'relatorios' | 'configuracoes'
+type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'gestao-auditoria' | 'gestao-solicitacoes' | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes' | 'estoque-pedidos' | 'estoque-baixas' | 'estoque-gerenciamento' | 'relatorios' | 'configuracoes'
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
 
@@ -48,11 +49,13 @@ const personalPages: { id: Page; label: string; icon: ComponentType<{ size?: num
   { id: 'pessoal-aprovacoes', label: 'Aprovações', icon: CheckCircle2 },
 ]
 const stockPages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
+  { id: 'estoque-pedidos', label: 'Pedidos', icon: ClipboardList },
   { id: 'estoque-baixas', label: 'Baixa de Materiais', icon: ClipboardCheck },
   { id: 'estoque-gerenciamento', label: 'Gerenciamento', icon: Warehouse },
 ]
 const managementPages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'gestao-auditoria', label: 'Auditoria', icon: ShieldCheck },
+  { id: 'gestao-solicitacoes', label: 'Solicitações ao estoque', icon: PackageCheck },
 ]
 const isOperationPage = (page: Page) => page.startsWith('operacao-')
 const isManagementPage = (page: Page) => page.startsWith('gestao-')
@@ -238,9 +241,11 @@ export default function App() {
         {page === 'inicio' && <Dashboard data={data} activities={activities} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} onRequest={() => setRequestOpen(true)} />}
         {isOperationPage(page) && <OperationPage section={page} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
         {page === 'gestao-auditoria' && <AuditPage data={data} onStart={setActiveAudit} />}
+        {page === 'gestao-solicitacoes' && <StockRequestsPage data={data} onNewRequest={() => setRequestOpen(true)} />}
         {['pessoal-ferramentas', 'pessoal-insumos', 'pessoal-epis'].includes(page) && <StockPage section={page} data={data} onChange={updateData} />}
         {page === 'pessoal-aprovacoes' && <StockApprovals data={data} onChange={updateData} />}
         {page === 'estoque-baixas' && <MaterialWriteOffsPage data={data} onChange={updateData} />}
+        {page === 'estoque-pedidos' && <StockOrdersPage data={data} onChange={updateData} />}
         {page === 'estoque-gerenciamento' && canManageStock && <StockManagement data={data} onChange={updateData} />}
         {page === 'relatorios' && <ReportsPage data={data} />}
         {page === 'configuracoes' && <SettingsPage data={data} onChange={updateData} onOpenPermissions={() => setPermissionsOpen(true)} />}
@@ -258,7 +263,12 @@ export default function App() {
     {activeAction && <QuickRegister action={activeAction} online={online} clients={data.clients.filter(item => item.active).map(item => item.name)} technicians={data.people.filter(item => item.active && item.id !== data.account.id).map(item => item.name)} onClose={() => setActiveAction(null)} onSave={register} />}
     {permissionsOpen && <div className="full-screen-layer"><PermissionMatrix initial={data.permissions} onClose={() => setPermissionsOpen(false)} onSaved={permissions => { updateData({ ...data, permissions }, 'Permissões atualizadas com sucesso.'); setPermissionsOpen(false) }} /></div>}
     {kmOpen && <KmForm vehicles={data.vehicles.filter(item => item.active)} driver={data.account.name} onClose={() => setKmOpen(false)} onComplete={record => { const next = { ...data, kmRecords: [...data.kmRecords, record], vehicles: data.vehicles.map(vehicle => vehicle.plate === record.vehicle ? { ...vehicle, mileage: record.mileage } : vehicle) }; updateData(next); setKmOpen(false); showToast('Relatório de KM registrado com sucesso.') }} />}
-    {requestOpen && <StockRequestForm code={nextRequestCode(data)} people={data.people} clients={data.clients} onClose={() => setRequestOpen(false)} onComplete={request => { const next = { ...data, stockRequests: [...data.stockRequests, { id: crypto.randomUUID(), ...request, createdAt: new Date().toISOString(), status: 'Pedido recebido', author: data.account.name }] }; updateData(next); setRequestOpen(false); showToast(`Solicitação ${request.code} criada com sucesso.`) }} />}
+    {requestOpen && <StockRequestForm code={nextRequestCode(data)} requester={data.account.name} people={data.people} clients={data.clients} onClose={() => setRequestOpen(false)} onComplete={request => {
+      const stockRequest: StockRequest = { id: crypto.randomUUID(), ...request, createdAt: new Date().toISOString(), status: 'Pedido recebido', author: data.account.name }
+      const technicianExists = data.people.some(person => person.name.trim().toLowerCase() === request.technician.trim().toLowerCase())
+      const people = technicianExists ? data.people : [...data.people, { id: crypto.randomUUID(), name: request.technician, email: '', groups: ['Técnico de Campo'], active: true, canLogin: false }]
+      updateData({ ...data, people, stockRequests: [...data.stockRequests, stockRequest] }); setRequestOpen(false); showToast(`Solicitação ${request.code} criada com sucesso.`)
+    }} />}
     {activeAudit && <AuditWizard data={data} start={activeAudit} onCancel={() => setActiveAudit(null)} onComplete={audit => { const nextDate = new Date(`${audit.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR'); updateData({ ...data, audits: [...data.audits, audit] }, `Auditoria concluída e PDF salvo. Próxima auditoria: ${nextDate}.`); setActiveAudit(null) }} />}
   </div>
 }
@@ -325,7 +335,7 @@ function Dashboard({ data, activities, onAction, onNavigate, onKm, onRequest }: 
     <section className="attention-grid">
       <button className="attention-card critical" onClick={() => onNavigate('estoque-gerenciamento')}><span><AlertTriangle size={21} /></span><div><b>{data.inventory.filter(item => item.quantity < 0).length}</b><small>Itens com saldo negativo</small></div><ChevronRight size={19} /></button>
       <button className="attention-card warning"><span><CalendarClock size={21} /></span><div><b>0</b><small>Auditorias próximas</small></div><ChevronRight size={19} /></button>
-      <button className="attention-card neutral" onClick={() => onNavigate('estoque-gerenciamento')}><span><PackageCheck size={21} /></span><div><b>{data.stockRequests.filter(item => item.status !== 'Entregue').length}</b><small>Pedidos em andamento</small></div><ChevronRight size={19} /></button>
+      <button className="attention-card neutral" onClick={() => onNavigate('estoque-pedidos')}><span><PackageCheck size={21} /></span><div><b>{data.stockRequests.filter(item => item.status !== 'Pedido separado').length}</b><small>Pedidos em andamento</small></div><ChevronRight size={19} /></button>
       <button className="attention-card success"><span><ClipboardCheck size={21} /></span><div><b>{data.trajectories.filter(item => item.declaredDate === todayInput()).length + data.kmRecords.length}</b><small>Registros realizados hoje</small></div><ChevronRight size={19} /></button>
     </section>
 

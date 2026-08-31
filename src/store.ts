@@ -2,10 +2,39 @@ export type Person = { id: string; name: string; email: string; groups: string[]
 export type Client = { id: string; name: string; city: string; state: string; latitude: string; longitude: string; active: boolean }
 export type Vehicle = { id: string; plate: string; brand: string; model: string; city: string; state: string; mileage: number; active: boolean }
 export type TrajectoryRecord = { id: string; type: string; declaredDate: string; declaredTime: string; recordedAt: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number; author: string; pendingSync: boolean }
-export type StockRequest = { id: string; code: string; createdAt: string; technician: string; client: string; status: string; items: number; author: string }
+export type StockRequestStatus = 'Pedido recebido' | 'Em separação' | 'Pedido separado'
+export type StockRequestItemStatus = 'Solicitado' | 'Cancelado' | 'Substituído'
+export type StockRequestItem = {
+  id: string
+  equipment: string
+  brand: string
+  model: string
+  quantity: number
+  status: StockRequestItemStatus
+  description?: string
+  substitute?: { equipment: string; brand: string; model: string; quantity: number }
+}
+export type StockRequest = {
+  id: string
+  code: string
+  createdAt: string
+  requester: string
+  technician: string
+  client: string
+  expectedDate: string
+  generalNotes: string
+  status: StockRequestStatus
+  items: number
+  requestedItems: StockRequestItem[]
+  author: string
+  assignmentStatus?: 'Enviado para aprovação'
+  assignedPersonId?: string
+  assignedPersonName?: string
+  assignedAt?: string
+}
 export type KmRecord = { id: string; createdAt: string; vehicle: string; driver: string; mileage: number; destination: string; changeDriver: boolean; hasDamage: boolean; damages: { location: string; description: string }[]; latitude?: number; longitude?: number; accuracy?: number }
 export type InventoryItem = { id: string; equipment: string; brand: string; model: string; category: 'Insumo' | 'Ferramenta pessoal' | 'Ferramenta rotativa' | 'EPI' | 'Escada'; unit: 'Unidade' | 'Caixa' | 'Metros' | 'Rolo'; quantity: number; minimum: number; code: string; notes: string }
-export type StockAssignment = { id: string; personId: string; inventoryItemId: string; equipment: string; brand: string; model: string; category: InventoryItem['category']; unit: InventoryItem['unit']; code: string; quantity: number; assignedAt: string; assignedBy: string; notes: string; status: 'Pendente' | 'Aprovado e retirado'; approvedAt?: string }
+export type StockAssignment = { id: string; personId: string; inventoryItemId: string; equipment: string; brand: string; model: string; category: InventoryItem['category']; unit: InventoryItem['unit']; code: string; quantity: number; assignedAt: string; assignedBy: string; notes: string; status: 'Pendente' | 'Aprovado e retirado'; approvedAt?: string; photo?: string; sourceRequestCode?: string }
 export type MaterialDisposition = 'Instalado no cliente' | 'Devolvido ao estoque' | 'Danificado'
 export type MaterialWorkflowStatus = 'Utilizado' | 'Aguardando recebimento' | 'Recebido' | 'Cancelado'
 export type MaterialUsage = {
@@ -109,6 +138,21 @@ export async function loadAppData(): Promise<AppData> {
   if (stored) return {
     ...stored,
     permissions: stored.permissions ?? [],
+    stockRequests: (stored.stockRequests ?? []).map(request => {
+      const requestedItems = request.requestedItems?.length ? request.requestedItems.map(item => ({ ...item, status: item.status ?? 'Solicitado' as const })) : Array.from({ length: request.items ?? 0 }, (_, index) => ({
+        id: crypto.randomUUID(), equipment: `Item ${index + 1} de registro anterior`, brand: '', model: '', quantity: 1, status: 'Solicitado' as const,
+      }))
+      const validStatus: StockRequestStatus = ['Pedido recebido', 'Em separação', 'Pedido separado'].includes(request.status) ? request.status : 'Pedido recebido'
+      return {
+        ...request,
+        requester: request.requester ?? request.author ?? stored.account.name,
+        expectedDate: request.expectedDate ?? request.createdAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+        generalNotes: request.generalNotes ?? '',
+        status: validStatus,
+        items: request.items ?? requestedItems.length,
+        requestedItems,
+      }
+    }),
     stockAssignments: (stored.stockAssignments ?? []).map(item => {
       const inventoryItem = stored.inventory.find(entry => entry.id === item.inventoryItemId)
       return {
