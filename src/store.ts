@@ -56,6 +56,16 @@ const DB_NAME = 'gio-local-v1'
 const STORE_NAME = 'application'
 const DATA_KEY = 'state'
 
+export function parseQuantity(value: string) {
+  const normalized = value.trim().replace(/\s/g, '').replace(',', '.')
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return Number.NaN
+  return Number(normalized)
+}
+
+export function formatQuantity(value: number) {
+  return value.toLocaleString('pt-BR', { maximumFractionDigits: 6 })
+}
+
 export async function hashPassword(password: string) {
   const bytes = new TextEncoder().encode(`gio-alert-v1:${password}`)
   const digest = await crypto.subtle.digest('SHA-256', bytes)

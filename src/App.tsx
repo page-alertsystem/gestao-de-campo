@@ -11,7 +11,7 @@ import { StockManagement } from './StockManagement'
 import { MaterialWriteOffModal, MaterialWriteOffsPage, StockApprovals } from './StockWorkflow'
 import { AuditPage, AuditWizard, type AuditStart } from './AuditModule'
 import { AdminCatalogs } from './AdminCatalogs'
-import { hashPassword, loadAppData, saveAppData, type AppData, type InventoryItem } from './store'
+import { formatQuantity, hashPassword, loadAppData, saveAppData, type AppData, type InventoryItem } from './store'
 
 type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'gestao-auditoria' | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes' | 'estoque-baixas' | 'estoque-gerenciamento' | 'relatorios' | 'configuracoes'
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
@@ -389,12 +389,12 @@ function StockPage({ section, data, onChange }: { section: Page; data: AppData; 
   const renderStockTable = (title: string, items: typeof filteredItems, secondary = false) => <section className={secondary ? 'surface table-surface stock-secondary-table' : 'surface table-surface'}>
     <div className="table-toolbar"><div><p className="eyebrow">Estoque individual</p><h3>{title}</h3></div><label className="search-field"><Search size={17} /><input placeholder="Buscar equipamento" /></label></div>
     <div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Código</th><th>Marca / modelo</th><th>Unidade</th><th>Quantidade</th><th>Status</th><th>Ação</th></tr></thead><tbody>{items.length ? items.map(item => <tr key={item.id}>
-      <td>{item.equipment}</td><td>{item.code}</td><td>{[item.brand, item.model].filter(Boolean).join(' ') || '—'}</td><td>{item.unit}</td><td>{personalBalances.get(item.id) ?? 0}</td><td><span className="status success">Atribuído</span></td><td><button className="secondary-button compact" onClick={() => setWriteOffItem(item)}><ClipboardCheck size={15} /> Dar baixa</button></td>
+      <td>{item.equipment}</td><td>{item.code}</td><td>{[item.brand, item.model].filter(Boolean).join(' ') || '—'}</td><td>{item.unit}</td><td>{formatQuantity(personalBalances.get(item.id) ?? 0)}</td><td><span className="status success">Atribuído</span></td><td><button className="secondary-button compact" onClick={() => setWriteOffItem(item)}><ClipboardCheck size={15} /> Dar baixa</button></td>
     </tr>) : <tr><td colSpan={7} className="table-empty">Nenhum item deste tipo foi atribuído a você.</td></tr>}</tbody></table></div>
   </section>
   return <>
     <PageIntro eyebrow="Pessoal" title={config.title} description={config.description} />
-    <section className="attention-grid stock-summary"><Metric icon={Warehouse} value={String(filteredItems.length)} label={`Tipos de ${config.title.toLowerCase()}`} /><Metric icon={ClipboardCheck} value={String(data.materialUsages.filter(item => item.personId === data.account.id && item.workflowStatus !== 'Cancelado').length)} label="Baixas realizadas" /><Metric icon={Boxes} value={String(filteredItems.reduce((total, item) => total + (personalBalances.get(item.id) ?? 0), 0))} label="Quantidade atribuída" /></section>
+    <section className="attention-grid stock-summary"><Metric icon={Warehouse} value={String(filteredItems.length)} label={`Tipos de ${config.title.toLowerCase()}`} /><Metric icon={ClipboardCheck} value={String(data.materialUsages.filter(item => item.personId === data.account.id && item.workflowStatus !== 'Cancelado').length)} label="Baixas realizadas" /><Metric icon={Boxes} value={formatQuantity(filteredItems.reduce((total, item) => total + (personalBalances.get(item.id) ?? 0), 0))} label="Quantidade atribuída" /></section>
     {section === 'pessoal-ferramentas' ? <>
       {renderStockTable('Ferramentas atribuídas a você', filteredItems.filter(item => item.category === 'Ferramenta pessoal'))}
       {renderStockTable('Ferramentas rotativas atribuídas a você', filteredItems.filter(item => item.category === 'Ferramenta rotativa'), true)}

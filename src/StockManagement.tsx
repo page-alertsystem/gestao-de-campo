@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react'
 import { PackageCheck, Plus } from 'lucide-react'
-import type { AppData, InventoryItem, StockAssignment } from './store'
+import { formatQuantity, parseQuantity, type AppData, type InventoryItem, type StockAssignment } from './store'
 
 const emptyForm = { personId: '', category: 'Ferramenta pessoal' as InventoryItem['category'], equipment: '', brand: '', model: '', code: '', unit: 'Unidade' as InventoryItem['unit'], quantity: '1', notes: '' }
 
@@ -11,7 +11,7 @@ export function StockManagement({ data, onChange }: { data: AppData; onChange: (
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    const amount = Number(form.quantity)
+    const amount = parseQuantity(form.quantity)
     if (!selectedPerson || !form.equipment.trim() || !form.code.trim() || !Number.isFinite(amount) || amount <= 0) return
 
     const normalizedCode = form.code.trim().toUpperCase()
@@ -31,7 +31,7 @@ export function StockManagement({ data, onChange }: { data: AppData; onChange: (
       ...data,
       inventory: existingItem ? data.inventory.map(item => item.id === existingItem.id ? { ...item, quantity: item.quantity - amount } : item) : [...data.inventory, inventoryItem],
       stockAssignments: [...data.stockAssignments, assignment],
-      notifications: [...data.notifications, { id: crypto.randomUUID(), title: 'Nova aprovação de estoque', detail: `${assignment.equipment} · código ${assignment.code} · ${amount} ${assignment.unit.toLowerCase()} para ${selectedPerson.name}`, createdAt: new Date().toISOString(), read: false, critical: false }],
+      notifications: [...data.notifications, { id: crypto.randomUUID(), title: 'Nova aprovação de estoque', detail: `${assignment.equipment} · código ${assignment.code} · ${formatQuantity(amount)} ${assignment.unit.toLowerCase()} para ${selectedPerson.name}`, createdAt: new Date().toISOString(), read: false, critical: false }],
     }, `Atribuição enviada para aprovação de ${selectedPerson.name}.`)
     setForm({ ...emptyForm, personId: selectedPerson.id })
   }
@@ -48,12 +48,12 @@ export function StockManagement({ data, onChange }: { data: AppData; onChange: (
         <label>Marca (opcional)<input value={form.brand} onChange={event => setForm({ ...form, brand: event.target.value })} /></label>
         <label>Modelo (opcional)<input value={form.model} onChange={event => setForm({ ...form, model: event.target.value })} /></label>
         <label>Unidade<select value={form.unit} onChange={event => setForm({ ...form, unit: event.target.value as InventoryItem['unit'] })}><option>Unidade</option><option>Caixa</option><option>Metros</option><option>Rolo</option></select></label>
-        <label>Quantidade<input type="number" min="0.01" step={form.unit === 'Metros' ? '0.01' : '1'} value={form.quantity} onChange={event => setForm({ ...form, quantity: event.target.value })} required /></label>
+        <label>Quantidade<input type="text" inputMode="decimal" pattern="[0-9]+([,.][0-9]+)?" title="Digite um número inteiro ou decimal, como 2 ou 1,5" value={form.quantity} onChange={event => setForm({ ...form, quantity: event.target.value })} placeholder="Ex.: 2 ou 1,5" required /></label>
         <label className="wide">Observação (opcional)<textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} placeholder="Tamanho, número de série ou informação da retirada" /></label>
       </div>
       <div className="simple-assignment-footer"><p>Após salvar, a pessoa deverá confirmar a aprovação e a retirada na aba <b>Aprovações</b>.</p><button className="primary-button" disabled={!form.personId}><Plus size={18} /> Enviar para aprovação</button></div>
     </form>
 
-    <section className="surface table-surface assignment-history"><div className="table-toolbar"><div><p className="eyebrow">Acompanhamento</p><h3>Atribuições realizadas</h3></div></div><div className="responsive-table"><table><thead><tr><th>Data</th><th>Pessoa</th><th>Equipamento</th><th>Código</th><th>Quantidade</th><th>Status</th></tr></thead><tbody>{data.stockAssignments.length ? [...data.stockAssignments].reverse().map(entry => { const person = data.people.find(item => item.id === entry.personId); return <tr key={entry.id}><td>{new Date(entry.assignedAt).toLocaleString('pt-BR')}</td><td>{person?.name ?? 'Pessoa removida'}</td><td>{entry.equipment}</td><td>{entry.code}</td><td>{entry.quantity} {entry.unit.toLowerCase()}</td><td><span className={`status ${entry.status === 'Aprovado e retirado' ? 'success' : 'warning'}`}>{entry.status}</span></td></tr> }) : <tr><td colSpan={6} className="table-empty">Nenhuma atribuição realizada.</td></tr>}</tbody></table></div></section>
+    <section className="surface table-surface assignment-history"><div className="table-toolbar"><div><p className="eyebrow">Acompanhamento</p><h3>Atribuições realizadas</h3></div></div><div className="responsive-table"><table><thead><tr><th>Data</th><th>Pessoa</th><th>Equipamento</th><th>Código</th><th>Quantidade</th><th>Status</th></tr></thead><tbody>{data.stockAssignments.length ? [...data.stockAssignments].reverse().map(entry => { const person = data.people.find(item => item.id === entry.personId); return <tr key={entry.id}><td>{new Date(entry.assignedAt).toLocaleString('pt-BR')}</td><td>{person?.name ?? 'Pessoa removida'}</td><td>{entry.equipment}</td><td>{entry.code}</td><td>{formatQuantity(entry.quantity)} {entry.unit.toLowerCase()}</td><td><span className={`status ${entry.status === 'Aprovado e retirado' ? 'success' : 'warning'}`}>{entry.status}</span></td></tr> }) : <tr><td colSpan={6} className="table-empty">Nenhuma atribuição realizada.</td></tr>}</tbody></table></div></section>
   </>
 }
