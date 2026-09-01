@@ -13,9 +13,10 @@ import { MaterialWriteOffModal, MaterialWriteOffsPage, StockApprovals } from './
 import { AuditPage, AuditWizard, type AuditStart } from './AuditModule'
 import { AdminCatalogs } from './AdminCatalogs'
 import { DamagedEquipmentPage, RmaRequestPage } from './MaintenanceModule'
+import { fetchSurveyStatus, nextSurveySyncTime, SurveyPage, surveyNeedsStatusSync } from './SurveyModule'
 import { formatQuantity, hashPassword, loadAppData, saveAppData, type AppData, type InventoryItem, type StockRequest } from './store'
 
-type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'gestao-auditoria' | 'gestao-solicitacoes' | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes' | 'estoque-pedidos' | 'estoque-baixas' | 'estoque-gerenciamento' | 'manutencao-rma' | 'manutencao-danificados' | 'relatorios' | 'configuracoes'
+type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'gestao-auditoria' | 'gestao-solicitacoes' | 'gestao-levantamento' | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes' | 'estoque-pedidos' | 'estoque-baixas' | 'estoque-gerenciamento' | 'manutencao-rma' | 'manutencao-danificados' | 'relatorios' | 'configuracoes'
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
 
@@ -58,6 +59,7 @@ const stockPages: { id: Page; label: string; icon: ComponentType<{ size?: number
 const managementPages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'gestao-auditoria', label: 'Auditoria', icon: ShieldCheck },
   { id: 'gestao-solicitacoes', label: 'Solicitações ao estoque', icon: PackageCheck },
+  { id: 'gestao-levantamento', label: 'Levantamento', icon: MapPin },
 ]
 const maintenancePages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'manutencao-rma', label: 'RMA', icon: Wrench },
@@ -91,6 +93,7 @@ export default function App() {
   const [activeAudit, setActiveAudit] = useState<AuditStart | null>(null)
   const [toast, setToast] = useState('')
   const [pendingSync, setPendingSync] = useState(0)
+  const [surveySyncTick, setSurveySyncTick] = useState(0)
   const [activities, setActivities] = useState<{ title: string; detail: string; tone: string }[]>([])
 
   useEffect(() => {
@@ -122,6 +125,38 @@ export default function App() {
     void saveAppData(next)
     if (message) showToast(message)
   }
+
+  useEffect(() => {
+    if (!data || !logged || !online) return
+    let active = true
+    const due = data.surveyRequests.filter(request => surveyNeedsStatusSync(request))
+    if (due.length) {
+      Promise.all(due.map(async request => {
+        try { return { id: request.id, ...(await fetchSurveyStatus(request)) } } catch { return null }
+      })).then(results => {
+        if (!active) return
+        const updates = new Map(results.filter((result): result is NonNullable<typeof result> => Boolean(result)).map(result => [result.id, result]))
+        if (!updates.size) return
+        setData(current => {
+          if (!current) return current
+          let resolvedNow = 0
+          const surveyRequests = current.surveyRequests.map(request => {
+            const update = updates.get(request.id)
+            if (!update) return request
+            if (update.resolved && !request.resolved) resolvedNow += 1
+            return { ...request, status: update.status, resolved: update.resolved, lastStatusCheckAt: update.checkedAt }
+          })
+          const next = { ...current, surveyRequests }
+          void saveAppData(next)
+          if (resolvedNow) showToast(`${resolvedNow} ${resolvedNow === 1 ? 'levantamento foi resolvido' : 'levantamentos foram resolvidos'} no Movidesk.`)
+          return next
+        })
+      })
+    }
+    const delay = Math.max(1000, nextSurveySyncTime().getTime() - Date.now() + 1000)
+    const timer = window.setTimeout(() => setSurveySyncTick(current => current + 1), delay)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [data?.surveyRequests, logged, online, surveySyncTick])
 
   const navigate = (next: Page) => {
     setPage(next)
@@ -260,6 +295,7 @@ export default function App() {
         {isOperationPage(page) && <OperationPage section={page} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
         {page === 'gestao-auditoria' && <AuditPage data={data} onStart={setActiveAudit} />}
         {page === 'gestao-solicitacoes' && <StockRequestsPage data={data} onNewRequest={() => setRequestOpen(true)} />}
+        {page === 'gestao-levantamento' && <SurveyPage data={data} onChange={updateData} />}
         {['pessoal-ferramentas', 'pessoal-insumos', 'pessoal-epis'].includes(page) && <StockPage section={page} data={data} onChange={updateData} />}
         {page === 'pessoal-aprovacoes' && <StockApprovals data={data} onChange={updateData} />}
         {page === 'estoque-baixas' && <MaterialWriteOffsPage data={data} onChange={updateData} />}

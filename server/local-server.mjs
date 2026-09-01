@@ -35,6 +35,8 @@ const server = createServer(async (request, response) => {
     if (url.pathname === '/api/health' && request.method === 'GET') return sendHealth(response)
     if (url.pathname === '/api/movidesk/rma' && request.method === 'POST') return await createRmaTicket(request, response)
     if (url.pathname === '/api/movidesk/rma/photo' && request.method === 'POST') return await uploadRmaPhoto(request, response)
+    if (url.pathname === '/api/movidesk/tickets/photo' && request.method === 'POST') return await uploadRmaPhoto(request, response)
+    if (url.pathname === '/api/movidesk/survey' && request.method === 'POST') return await createSurveyTicket(request, response)
     if (url.pathname.startsWith('/api/movidesk/tickets/') && request.method === 'GET') {
       const ticketId = decodeURIComponent(url.pathname.slice('/api/movidesk/tickets/'.length))
       return await retrieveTicket(ticketId, response)
@@ -180,13 +182,107 @@ async function uploadRmaPhoto(request, response) {
   }
 }
 
+async function createSurveyTicket(request, response) {
+  const configuration = movideskConfiguration()
+  if (!configuration.configured) return sendJson(response, 503, { error: 'Integração com o Movidesk ainda não configurada.', missing: configuration.missing })
+
+  let body
+  try {
+    body = await readJsonBody(request)
+  } catch (error) {
+    const tooLarge = String(error?.message || '').includes('15 MB')
+    return sendJson(response, tooLarge ? 413 : 400, { error: tooLarge ? 'A imagem ultrapassa o limite de 15 MB.' : 'O conteúdo enviado não é válido.' })
+  }
+  const required = ['localCode', 'client', 'startDate', 'endDate', 'area', 'details', 'requestedBy']
+  const missing = required.filter(field => !String(body[field] ?? '').trim())
+  if (missing.length) return sendJson(response, 400, { error: 'Preencha todos os campos obrigatórios.', missing })
+  if (String(body.endDate) < String(body.startDate)) return sendJson(response, 400, { error: 'A data final não pode ser anterior à data inicial.' })
+
+  const requesterId = process.env.MOVIEDESK_SURVEY_REQUESTER_ID?.trim() || '1128174077'
+  const creator = { id: requesterId }
+  const status = process.env.MOVIEDESK_STATUS?.trim() || '1 - Aberto'
+  const baseStatus = process.env.MOVIEDESK_BASE_STATUS?.trim() || 'New'
+  const origin = Number(process.env.MOVIEDESK_ORIGIN || 9)
+  const action = {
+    type: Number(process.env.MOVIEDESK_ACTION_TYPE || 2),
+    origin,
+    description: buildSurveyDescription(body),
+    status,
+    createdBy: creator,
+  }
+  const ticket = {
+    type: Number(process.env.MOVIEDESK_TICKET_TYPE || 2),
+    subject: `Levantamento: ${String(body.client).trim()} ${String(body.area).trim()}`.slice(0, 128),
+    urgency: process.env.MOVIEDESK_SURVEY_URGENCY?.trim() || 'Média',
+    status,
+    baseStatus,
+    origin,
+    createdBy: creator,
+    clients: [{ id: requesterId }],
+    actions: [action],
+  }
+  const category = process.env.MOVIEDESK_SURVEY_CATEGORY?.trim()
+  if (category) ticket.category = category
+  const ownerId = process.env.MOVIEDESK_SURVEY_OWNER_ID?.trim()
+  const ownerTeam = process.env.MOVIEDESK_SURVEY_OWNER_TEAM?.trim()
+  if (ownerId) ticket.owner = { id: ownerId }
+  if (ownerTeam) ticket.ownerTeam = ownerTeam
+
+  if (!allowMovideskRequest()) return sendJson(response, 429, { error: 'Limite temporário de chamadas ao Movidesk atingido. Aguarde um minuto.' })
+  const movideskResponse = await fetch(`${movideskBaseUrl}/tickets?token=${encodeURIComponent(configuration.token)}&returnAllProperties=true`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(ticket), signal: AbortSignal.timeout(45000),
+  })
+  const responseText = await movideskResponse.text()
+  if (!movideskResponse.ok) {
+    console.error(`Movidesk levantamento ${movideskResponse.status}: ${safeMovideskError(responseText)}`)
+    return sendJson(response, 502, { error: 'O Movidesk recusou a criação do ticket de levantamento.', status: movideskResponse.status, detail: safeMovideskError(responseText) })
+  }
+
+  const parsed = parseJson(responseText)
+  let ticketDetails = parsed
+  let internalId = extractInternalTicketId(parsed, responseText, movideskResponse.headers.get('location'))
+  let ticketId = extractTicketId(parsed, responseText, movideskResponse.headers.get('location'))
+  let actionId = extractActionId(parsed)
+  if (internalId && (!actionId || !String(parsed?.protocol ?? '').trim())) {
+    const retrieved = await retrieveTicketDetails(internalId, configuration)
+    if (retrieved) {
+      ticketDetails = retrieved
+      ticketId = String(retrieved.protocol ?? ticketId).trim()
+      actionId = extractActionId(retrieved) || actionId
+    }
+  }
+  if (!ticketId) return sendJson(response, 502, { error: 'O Movidesk criou o registro, mas não devolveu o número do ticket.' })
+  internalId = extractInternalTicketId(ticketDetails, String(internalId), '') || internalId
+
+  let photoUploaded = !body.photo
+  let attachmentError = ''
+  if (body.photo) {
+    if (!internalId || !actionId) attachmentError = 'O ticket foi criado, mas o Movidesk não informou a ação para anexar a foto.'
+    else {
+      try {
+        await uploadPhotoToAction({ photo: body.photo, localCode: body.localCode, internalId, actionId, configuration })
+        photoUploaded = true
+      } catch (error) {
+        attachmentError = safeAttachmentError(error)
+        console.error(`Falha ao anexar foto do levantamento ao ticket ${internalId}: ${attachmentError}`)
+      }
+    }
+  }
+
+  return sendJson(response, 201, {
+    ticketId, id: ticketId, internalId, actionId, status, photoUploaded, attachmentError, localCode: body.localCode,
+  })
+}
+
 async function retrieveTicket(ticketId, response) {
   const configuration = movideskConfiguration()
   if (!configuration.configured) return sendJson(response, 503, { error: 'Integração com o Movidesk ainda não configurada.', missing: configuration.missing })
   if (!/^\d+$/.test(ticketId)) return sendJson(response, 400, { error: 'Número de ticket inválido.' })
   if (!allowMovideskRequest()) return sendJson(response, 429, { error: 'Limite temporário de chamadas ao Movidesk atingido. Aguarde um minuto.' })
 
-  const query = new URLSearchParams({ token: configuration.token, id: ticketId })
+  const query = new URLSearchParams({ token: configuration.token })
+  query.set(ticketId.length > 10 ? 'protocol' : 'id', ticketId)
   const movideskResponse = await fetch(`${movideskBaseUrl}/tickets?${query}`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(30000) })
   const responseText = await movideskResponse.text()
   if (!movideskResponse.ok) return sendJson(response, 502, { error: 'Não foi possível consultar o ticket no Movidesk.', status: movideskResponse.status, detail: safeMovideskError(responseText) })
@@ -197,6 +293,8 @@ async function retrieveTicket(ticketId, response) {
     protocol: ticket?.protocol ?? '',
     subject: ticket?.subject ?? '',
     status: ticket?.status ?? '',
+    baseStatus: ticket?.baseStatus ?? '',
+    resolved: isResolvedTicket(ticket),
     category: ticket?.category ?? '',
     urgency: ticket?.urgency ?? '',
     owner: ticket?.owner?.businessName ?? ticket?.owner?.userName ?? '',
@@ -242,6 +340,19 @@ function buildDescription(body) {
     `Categoria: ${body.category || 'RMA'}`,
     `Urgência: ${body.urgency || 'Normal'}`,
     `Descrição do problema: ${body.details}`,
+    `Registrado no GIO em ${new Date().toLocaleString('pt-BR')}.`,
+  ].map(line => escapeHtml(line).replace(/\r?\n/g, '<br>')).join('<br>')
+}
+
+function buildSurveyDescription(body) {
+  return [
+    'SOLICITAÇÃO DE LEVANTAMENTO PELO GIO',
+    `Código GIO: ${body.localCode}`,
+    `Cliente informado: ${body.client}`,
+    `Período solicitado: ${formatDate(body.startDate)} a ${formatDate(body.endDate)}`,
+    `Área do levantamento: ${body.area}`,
+    `Solicitante: ${body.requestedBy}`,
+    `Detalhes da atividade: ${body.details}`,
     `Registrado no GIO em ${new Date().toLocaleString('pt-BR')}.`,
   ].map(line => escapeHtml(line).replace(/\r?\n/g, '<br>')).join('<br>')
 }
@@ -306,6 +417,16 @@ function safeAttachmentError(error) {
 function formatDate(value) {
   const date = new Date(`${value}T12:00:00`)
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString('pt-BR')
+}
+
+function isResolvedTicket(ticket) {
+  const status = normalizeText(ticket?.status)
+  const baseStatus = normalizeText(ticket?.baseStatus)
+  return status.includes('resolvid') || status.includes('concluid') || baseStatus === 'resolved' || baseStatus === 'closed'
+}
+
+function normalizeText(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
 }
 
 async function serveStatic(pathname, response) {

@@ -100,6 +100,29 @@ export type RmaRequest = {
   lastPrintedAt?: string
 }
 
+export type SurveyRequest = {
+  id: string
+  localCode: string
+  movideskTicketId: string
+  movideskInternalId?: string
+  movideskActionId?: string
+  client: string
+  startDate: string
+  endDate: string
+  area: string
+  details: string
+  photo: string
+  requestedById: string
+  requestedByName: string
+  createdAt: string
+  status: string
+  resolved: boolean
+  sentToMovideskAt?: string
+  photoSentToMovideskAt?: string
+  lastStatusCheckAt?: string
+  integrationError?: string
+}
+
 export type AppData = {
   account: AdminAccount
   people: Person[]
@@ -113,6 +136,7 @@ export type AppData = {
   materialUsages: MaterialUsage[]
   audits: AuditRecord[]
   rmaRequests: RmaRequest[]
+  surveyRequests: SurveyRequest[]
   notifications: Notification[]
   permissions: string[]
 }
@@ -231,6 +255,16 @@ export async function loadAppData(): Promise<AppData> {
       status: item.status ?? 'Aguardando integração Movidesk',
       printCount: item.printCount ?? 0,
     })),
+    surveyRequests: (stored.surveyRequests ?? []).map(item => ({
+      ...item,
+      localCode: item.localCode ?? `LEV-${item.id.slice(0, 8).toUpperCase()}`,
+      movideskTicketId: item.movideskTicketId ?? '',
+      requestedById: item.requestedById ?? stored.account.id,
+      requestedByName: item.requestedByName ?? stored.account.name,
+      photo: item.photo ?? '',
+      status: item.status ?? 'Aguardando integração Movidesk',
+      resolved: item.resolved ?? String(item.status ?? '').toLocaleLowerCase('pt-BR').includes('resolvid'),
+    })),
   }
   const account: AdminAccount = {
     id: crypto.randomUUID(),
@@ -242,7 +276,7 @@ export async function loadAppData(): Promise<AppData> {
   const initial: AppData = {
     account,
     people: [{ id: account.id, name: account.name, email: account.email, groups: ['Administrador'], active: true, canLogin: true }],
-    clients: [], vehicles: [], trajectories: [], stockRequests: [], kmRecords: [], inventory: [], stockAssignments: [], materialUsages: [], audits: [], rmaRequests: [], notifications: [], permissions: [],
+    clients: [], vehicles: [], trajectories: [], stockRequests: [], kmRecords: [], inventory: [], stockAssignments: [], materialUsages: [], audits: [], rmaRequests: [], surveyRequests: [], notifications: [], permissions: [],
   }
   await saveAppData(initial)
   return initial

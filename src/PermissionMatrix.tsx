@@ -20,6 +20,7 @@ const groups = [
   { name: 'Auditoria de EPIs', permissions: ['Iniciar auditoria de EPI', 'Visualizar auditorias de EPI', 'Responder checklist de EPI', 'Definir próxima auditoria de EPI', 'Aprovar EPI', 'Aprovar EPI com observação', 'Indicar substituição de EPI', 'Bloquear uso de EPI', 'Liberar EPI', 'Gerar PDF de auditoria de EPI', 'Exportar auditorias de EPI'] },
   { name: 'Quilometragem', permissions: ['Registrar quilometragem', 'Visualizar própria quilometragem do dia', 'Visualizar registros de KM de todos', 'Visualizar histórico de KM do veículo', 'Registrar troca de condutor', 'Registrar avarias', 'Gerar PDF da troca', 'Visualizar dados escritos da troca', 'Exportar relatório de KM'] },
   { name: 'Manutenção e RMA', permissions: ['Criar solicitação de RMA', 'Visualizar próprias solicitações de RMA', 'Visualizar todos os equipamentos danificados', 'Confirmar recebimento de equipamento danificado', 'Reimprimir comprovante térmico', 'Visualizar ticket do Movidesk', 'Exportar registros de RMA'] },
+  { name: 'Levantamentos', permissions: ['Criar solicitação de levantamento', 'Visualizar próprios levantamentos', 'Visualizar todos os levantamentos', 'Visualizar ticket do Movidesk do levantamento', 'Acompanhar status do levantamento', 'Reenviar solicitação pendente', 'Exportar levantamentos'] },
   { name: 'Notificações', permissions: ['Receber notificações', 'Visualizar notificações', 'Visualizar histórico de notificações', 'Visualizar alertas de saldo', 'Visualizar alertas de auditoria', 'Visualizar alertas de solicitações', 'Visualizar alertas de ponto esquecido'] },
   { name: 'Relatórios', permissions: ['Visualizar relatórios de trajetos', 'Exportar trajetos para Excel', 'Visualizar relatórios de ponto', 'Exportar pontos para Excel', 'Visualizar relatórios de KM', 'Exportar KM para Excel', 'Visualizar relatórios de estoque', 'Exportar estoque para Excel', 'Visualizar relatórios de solicitações', 'Exportar solicitações para Excel', 'Visualizar relatórios de auditoria', 'Exportar auditorias para Excel', 'Visualizar histórico de ações'] },
 ]
@@ -36,6 +37,7 @@ const defaultEnabled = new Set([
   'Técnico de Campo::Criar solicitação de RMA', 'Técnico de Campo::Visualizar próprias solicitações de RMA',
   'RMA::Visualizar todos os equipamentos danificados', 'RMA::Confirmar recebimento de equipamento danificado',
   'RMA::Reimprimir comprovante térmico', 'RMA::Visualizar ticket do Movidesk',
+  'Técnico de Campo::Criar solicitação de levantamento', 'Técnico de Campo::Visualizar próprios levantamentos',
 ])
 
 export function PermissionMatrix({ initial, onClose, onSaved }: { initial: string[]; onClose: () => void; onSaved: (permissions: string[]) => void }) {
