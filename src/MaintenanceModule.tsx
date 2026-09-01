@@ -1,10 +1,12 @@
-import { ChangeEvent, FormEvent, useMemo, useState } from 'react'
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Camera, CheckCircle2, ChevronRight, FileText, PackageCheck, Printer, RotateCcw, Search, Send, Wrench } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import type { AppData, RmaRequest, RmaUrgency } from './store'
 
 const todayInput = () => new Date().toISOString().slice(0, 10)
-const movideskEndpoint = String(import.meta.env.VITE_MOVIEDESK_RMA_ENDPOINT ?? '').trim()
+const movideskEndpoint = String(import.meta.env.VITE_MOVIEDESK_RMA_ENDPOINT ?? '/api/movidesk/rma').trim()
+const serverHealthEndpoint = String(import.meta.env.VITE_GIO_HEALTH_ENDPOINT ?? '/api/health').trim()
+type IntegrationState = 'checking' | 'ready' | 'server-pending' | 'unavailable'
 
 function readImage(event: ChangeEvent<HTMLInputElement>, onReady: (value: string) => void) {
   const file = event.target.files?.[0]
@@ -31,6 +33,19 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
   const [details, setDetails] = useState('')
   const [photo, setPhoto] = useState('')
   const [sending, setSending] = useState(false)
+  const [integrationState, setIntegrationState] = useState<IntegrationState>('checking')
+
+  useEffect(() => {
+    let active = true
+    fetch(serverHealthEndpoint, { headers: { Accept: 'application/json' } })
+      .then(async response => {
+        if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) throw new Error('Servidor indisponível')
+        return response.json() as Promise<{ movideskConfigured?: boolean }>
+      })
+      .then(health => { if (active) setIntegrationState(health.movideskConfigured ? 'ready' : 'server-pending') })
+      .catch(() => { if (active) setIntegrationState('unavailable') })
+    return () => { active = false }
+  }, [])
 
   const reset = () => {
     setClient(''); setEquipment(''); setWithdrawalDate(todayInput()); setService('Manutenção')
@@ -49,9 +64,10 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
       urgency, details: details.trim(), photo, createdAt, status: 'Aguardando integração Movidesk', printCount: 0,
     }
     let nextData: AppData = { ...data, rmaRequests: [...data.rmaRequests, request] }
-    onChange(nextData, movideskEndpoint ? `Solicitação ${localCode} salva. Enviando ao Movidesk...` : `Solicitação ${localCode} salva no GIO e aguardando integração com o Movidesk.`)
+    const integrationReady = integrationState === 'ready'
+    onChange(nextData, integrationReady ? `Solicitação ${localCode} salva. Enviando ao Movidesk...` : `Solicitação ${localCode} salva no GIO e aguardando integração com o Movidesk.`)
 
-    if (movideskEndpoint) {
+    if (integrationReady) {
       try {
         const response = await fetch(movideskEndpoint, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -80,9 +96,9 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
     <section className="page-intro"><div><p className="eyebrow">Manutenção</p><h2>Solicitação de RMA</h2><p>Registre um equipamento danificado para encaminhamento à equipe de RMA. Cada equipamento gera um chamado individual.</p></div></section>
     <section className="surface rma-form-card">
       <div className="section-heading"><div><p className="eyebrow">Novo encaminhamento</p><h3>Dados do equipamento</h3></div><span className="rma-heading-icon"><Wrench size={23} /></span></div>
-      <div className={movideskEndpoint ? 'rma-integration-state ready' : 'rma-integration-state'}>
-        {movideskEndpoint ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
-        <div><b>{movideskEndpoint ? 'Integração com o Movidesk configurada' : 'Integração com o Movidesk aguardando configuração'}</b><small>O registro sempre será salvo no GIO. A credencial do Movidesk ficará protegida no servidor.</small></div>
+      <div className={integrationState === 'ready' ? 'rma-integration-state ready' : 'rma-integration-state'}>
+        {integrationState === 'ready' ? <CheckCircle2 size={18} /> : integrationState === 'checking' ? <RotateCcw size={18} /> : <AlertTriangle size={18} />}
+        <div><b>{integrationState === 'ready' ? 'Servidor local e Movidesk configurados' : integrationState === 'server-pending' ? 'Servidor local ativo; Movidesk aguarda configuração' : integrationState === 'checking' ? 'Verificando o servidor local...' : 'Acesse pelo servidor local para usar o Movidesk'}</b><small>O registro sempre será salvo no GIO. A credencial do Movidesk ficará protegida somente nesta máquina.</small></div>
       </div>
       <form className="rma-form" onSubmit={submit}>
         <div className="rma-form-grid">
