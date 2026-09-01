@@ -76,6 +76,8 @@ export type RmaRequest = {
   id: string
   localCode: string
   movideskTicketId: string
+  movideskInternalId?: string
+  movideskActionId?: string
   title: string
   client: string
   equipment: string
@@ -90,6 +92,7 @@ export type RmaRequest = {
   createdAt: string
   status: RmaStatus
   sentToMovideskAt?: string
+  photoSentToMovideskAt?: string
   integrationError?: string
   receivedAt?: string
   receivedBy?: string

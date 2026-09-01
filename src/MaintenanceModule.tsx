@@ -7,13 +7,81 @@ const todayInput = () => new Date().toISOString().slice(0, 10)
 const movideskEndpoint = String(import.meta.env.VITE_MOVIEDESK_RMA_ENDPOINT ?? '/api/movidesk/rma').trim()
 const serverHealthEndpoint = String(import.meta.env.VITE_GIO_HEALTH_ENDPOINT ?? '/api/health').trim()
 type IntegrationState = 'checking' | 'ready' | 'server-pending' | 'unavailable'
+type MovideskRmaResult = {
+  id?: string | number
+  ticketId?: string | number
+  internalId?: string | number
+  actionId?: string | number
+  photoUploaded?: boolean
+  attachmentError?: string
+}
 
-function readImage(event: ChangeEvent<HTMLInputElement>, onReady: (value: string) => void) {
+async function readImage(event: ChangeEvent<HTMLInputElement>) {
   const file = event.target.files?.[0]
-  if (!file) return
-  const reader = new FileReader()
-  reader.onload = () => onReady(String(reader.result))
-  reader.readAsDataURL(file)
+  event.target.value = ''
+  if (!file) return ''
+  if (!file.type.startsWith('image/')) throw new Error('Selecione um arquivo de imagem.')
+  return optimizeImage(file)
+}
+
+async function optimizeImage(source: Blob | string) {
+  const objectUrl = typeof source === 'string' ? source : URL.createObjectURL(source)
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image()
+      element.onload = () => resolve(element)
+      element.onerror = () => reject(new Error('Não foi possível abrir esta imagem.'))
+      element.src = objectUrl
+    })
+    const largestSide = Math.max(image.naturalWidth, image.naturalHeight)
+    const scale = Math.min(1, 1600 / largestSide)
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Este aparelho não conseguiu preparar a foto.')
+    context.fillStyle = '#ffffff'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    context.drawImage(image, 0, 0, canvas.width, canvas.height)
+    return canvas.toDataURL('image/jpeg', 0.78)
+  } finally {
+    if (typeof source !== 'string') URL.revokeObjectURL(objectUrl)
+  }
+}
+
+function rmaPayload(request: RmaRequest, photo = request.photo) {
+  return {
+    localCode: request.localCode, title: request.title, client: request.client, equipment: request.equipment,
+    withdrawalDate: request.withdrawalDate, technician: request.technicianName, service: request.service,
+    category: request.category, urgency: request.urgency, details: request.details, photo,
+  }
+}
+
+async function sendRmaToMovidesk(request: RmaRequest, optimizeStoredPhoto = false) {
+  const photo = request.photo && optimizeStoredPhoto ? await optimizeImage(request.photo) : request.photo
+  const response = await fetch(movideskEndpoint, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rmaPayload(request, photo)),
+  })
+  const result = await response.json().catch(() => ({})) as MovideskRmaResult & { error?: string }
+  if (!response.ok) throw new Error(result.error || `Falha ${response.status}`)
+  const ticketId = String(result.ticketId ?? result.id ?? '').trim()
+  if (!ticketId) throw new Error('Número do ticket não retornado')
+  return { result, ticketId, photo }
+}
+
+function withMovideskResult(request: RmaRequest, ticketId: string, result: MovideskRmaResult, photo = request.photo): RmaRequest {
+  const photoUploaded = !photo || result.photoUploaded === true
+  return {
+    ...request,
+    photo,
+    movideskTicketId: ticketId,
+    movideskInternalId: String(result.internalId ?? '').trim() || request.movideskInternalId,
+    movideskActionId: String(result.actionId ?? '').trim() || request.movideskActionId,
+    status: 'Enviado ao Movidesk',
+    sentToMovideskAt: request.sentToMovideskAt ?? new Date().toISOString(),
+    photoSentToMovideskAt: photoUploaded && photo ? new Date().toISOString() : request.photoSentToMovideskAt,
+    integrationError: photoUploaded ? undefined : (result.attachmentError || 'O ticket foi criado, mas a foto ficou pendente de envio.'),
+  }
 }
 
 function nextRmaCode(data: AppData) {
@@ -32,6 +100,8 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
   const [urgency, setUrgency] = useState<RmaUrgency>('Média')
   const [details, setDetails] = useState('')
   const [photo, setPhoto] = useState('')
+  const [photoError, setPhotoError] = useState('')
+  const [photoLoading, setPhotoLoading] = useState(false)
   const [sending, setSending] = useState(false)
   const [integrationState, setIntegrationState] = useState<IntegrationState>('checking')
 
@@ -49,7 +119,19 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
 
   const reset = () => {
     setClient(''); setEquipment(''); setWithdrawalDate(todayInput()); setService('Manutenção')
-    setCategory('RMA'); setUrgency('Média'); setDetails(''); setPhoto('')
+    setCategory('RMA'); setUrgency('Média'); setDetails(''); setPhoto(''); setPhotoError('')
+  }
+
+  const selectPhoto = async (event: ChangeEvent<HTMLInputElement>) => {
+    setPhotoLoading(true); setPhotoError('')
+    try {
+      const optimized = await readImage(event)
+      if (optimized) setPhoto(optimized)
+    } catch (error) {
+      setPhotoError(error instanceof Error ? error.message : 'Não foi possível preparar a foto.')
+    } finally {
+      setPhotoLoading(false)
+    }
   }
 
   const submit = async (event: FormEvent) => {
@@ -69,20 +151,10 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
 
     if (integrationReady) {
       try {
-        const response = await fetch(movideskEndpoint, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            localCode, title, client: request.client, equipment: request.equipment, withdrawalDate, technician: request.technicianName,
-            service: request.service, category: request.category, urgency, details: request.details, photo: request.photo,
-          }),
-        })
-        if (!response.ok) throw new Error(`Falha ${response.status}`)
-        const result = await response.json() as { id?: string | number; ticketId?: string | number }
-        const ticketId = String(result.ticketId ?? result.id ?? '').trim()
-        if (!ticketId) throw new Error('Número do ticket não retornado')
-        const sent: RmaRequest = { ...request, movideskTicketId: ticketId, status: 'Enviado ao Movidesk', sentToMovideskAt: new Date().toISOString() }
+        const { result, ticketId } = await sendRmaToMovidesk(request)
+        const sent = withMovideskResult(request, ticketId, result)
         nextData = { ...nextData, rmaRequests: nextData.rmaRequests.map(item => item.id === sent.id ? sent : item) }
-        onChange(nextData, `Ticket ${ticketId} criado no Movidesk com sucesso.`)
+        onChange(nextData, sent.integrationError ? `Ticket ${ticketId} criado. A foto ficou pendente e pode ser reenviada.` : `Ticket ${ticketId} criado no Movidesk com a foto.`)
       } catch {
         const failed: RmaRequest = { ...request, integrationError: 'Não foi possível enviar agora. O registro permanece salvo no GIO.' }
         nextData = { ...nextData, rmaRequests: nextData.rmaRequests.map(item => item.id === failed.id ? failed : item) }
@@ -112,11 +184,12 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
           <label className="rma-details">Detalhes do problema<textarea value={details} onChange={event => setDetails(event.target.value)} placeholder="Descreva o defeito, sintomas e demais informações importantes." required /></label>
           <label className={photo ? 'rma-photo-field filled' : 'rma-photo-field'}>
             {photo ? <img src={photo} alt="Foto do equipamento" /> : <Camera size={28} />}
-            <b>{photo ? 'Foto adicionada' : 'Adicionar foto (opcional)'}</b><small>{photo ? 'Toque para trocar a imagem' : 'Use a câmera ou selecione uma imagem do aparelho'}</small>
-            <input type="file" accept="image/*" onChange={event => readImage(event, setPhoto)} />
+            <b>{photoLoading ? 'Preparando foto...' : photo ? 'Foto adicionada e otimizada' : 'Adicionar foto (opcional)'}</b><small>{photo ? 'Toque para trocar a imagem' : 'Use a câmera ou selecione uma imagem do aparelho'}</small>
+            <input type="file" accept="image/*" disabled={photoLoading} onChange={event => void selectPhoto(event)} />
           </label>
+          {photoError && <p className="rma-table-warning">{photoError}</p>}
         </div>
-        <div className="rma-form-footer"><p><FileText size={17} />Título previsto: <b>RMA: Manutenção - {equipment.trim() || 'equipamento'} - {client.trim() || 'cliente'}</b></p><button className="primary-button" disabled={sending}><Send size={18} />{sending ? 'Registrando...' : 'Registrar solicitação'}</button></div>
+        <div className="rma-form-footer"><p><FileText size={17} />Título previsto: <b>RMA: Manutenção - {equipment.trim() || 'equipamento'} - {client.trim() || 'cliente'}</b></p><button className="primary-button" disabled={sending || photoLoading}><Send size={18} />{sending ? 'Registrando...' : 'Registrar solicitação'}</button></div>
       </form>
     </section>
   </>
@@ -151,6 +224,42 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
     return () => { active = false }
   }, [data, onChange])
 
+  const retryMovidesk = async (request: RmaRequest) => {
+    setBusyId(request.id)
+    try {
+      const optimizedPhoto = request.photo ? await optimizeImage(request.photo) : ''
+      let updated: RmaRequest
+      let message: string
+      if (request.movideskTicketId && request.movideskInternalId && request.movideskActionId && optimizedPhoto) {
+        const response = await fetch('/api/movidesk/rma/photo', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            internalId: request.movideskInternalId, actionId: request.movideskActionId,
+            localCode: request.localCode, photo: optimizedPhoto,
+          }),
+        })
+        const result = await response.json().catch(() => ({})) as { error?: string }
+        if (!response.ok) throw new Error(result.error || `Falha ${response.status}`)
+        updated = { ...request, photo: optimizedPhoto, integrationError: undefined, photoSentToMovideskAt: new Date().toISOString() }
+        message = `Foto anexada ao ticket ${request.movideskTicketId} com sucesso.`
+      } else {
+        const pending = { ...request, photo: optimizedPhoto }
+        const { result, ticketId, photo } = await sendRmaToMovidesk(pending)
+        updated = withMovideskResult(pending, ticketId, result, photo)
+        message = updated.integrationError ? `Ticket ${ticketId} criado, mas a foto ainda está pendente.` : `Ticket ${ticketId} criado no Movidesk com a foto.`
+      }
+      const next: AppData = { ...data, rmaRequests: data.rmaRequests.map(item => item.id === request.id ? updated : item) }
+      onChange(next, message)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Falha desconhecida.'
+      const failed: RmaRequest = { ...request, integrationError: `Não foi possível enviar: ${detail}` }
+      const next: AppData = { ...data, rmaRequests: data.rmaRequests.map(item => item.id === request.id ? failed : item) }
+      onChange(next, `${request.localCode} continua salvo no GIO. Tente novamente em instantes.`)
+    } finally {
+      setBusyId('')
+    }
+  }
+
   const print = async (request: RmaRequest, receiving: boolean) => {
     if (receiving && !window.confirm(`Confirmar o recebimento de ${request.equipment}? Esta ação não poderá ser desfeita.`)) return
     const preview = window.open('', '_blank')
@@ -181,7 +290,7 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
     <section className="surface table-surface damaged-equipment-table">
       <div className="table-toolbar"><div><p className="eyebrow">Controle de recebimento</p><h3>Tickets de equipamentos danificados</h3></div><label className="search-field"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar ticket ou equipamento" /></label></div>
       <div className="responsive-table"><table><thead><tr><th>Ticket Movidesk</th><th>Cliente</th><th>Técnico</th><th>Equipamento</th><th>Data da retirada</th><th>Status</th><th>Ação</th></tr></thead><tbody>{requests.length ? requests.map(item => <tr key={item.id}>
-        <td><b>{item.movideskTicketId || 'Aguardando'}</b><small className="table-subtitle">{item.localCode}</small></td><td>{item.client}</td><td>{item.technicianName}</td><td><b>{item.equipment}</b></td><td>{new Date(`${item.withdrawalDate}T12:00:00`).toLocaleDateString('pt-BR')}</td><td><span className={`status ${item.status === 'Pedido recebido' ? 'success' : item.status === 'Enviado ao Movidesk' ? 'warning' : 'neutral'}`}>{item.status}</span>{item.integrationError && <small className="rma-table-warning">Envio pendente</small>}</td><td>{item.status === 'Pedido recebido' ? <button className="secondary-button compact" disabled={busyId === item.id} onClick={() => void print(item, false)}><RotateCcw size={15} /> Reimprimir</button> : canReceive ? <button className="primary-button compact" disabled={busyId === item.id} onClick={() => void print(item, true)}><PackageCheck size={15} /> Confirmar recebimento</button> : <span className="table-muted">Aguardando RMA</span>}</td>
+        <td><b>{item.movideskTicketId || 'Aguardando'}</b><small className="table-subtitle">{item.localCode}</small></td><td>{item.client}</td><td>{item.technicianName}</td><td><b>{item.equipment}</b></td><td>{new Date(`${item.withdrawalDate}T12:00:00`).toLocaleDateString('pt-BR')}</td><td><span className={`status ${item.status === 'Pedido recebido' ? 'success' : item.status === 'Enviado ao Movidesk' ? 'warning' : 'neutral'}`}>{item.status}</span>{item.integrationError && <small className="rma-table-warning">{item.movideskTicketId ? 'Foto pendente' : 'Envio pendente'}</small>}</td><td>{item.status === 'Pedido recebido' ? <button className="secondary-button compact" disabled={busyId === item.id} onClick={() => void print(item, false)}><RotateCcw size={15} /> Reimprimir</button> : item.status === 'Aguardando integração Movidesk' || (item.integrationError && item.movideskInternalId && item.movideskActionId) ? <button className="primary-button compact" disabled={busyId === item.id} onClick={() => void retryMovidesk(item)}><Send size={15} /> {item.movideskTicketId ? 'Reenviar foto' : 'Reenviar ao Movidesk'}</button> : canReceive ? <button className="primary-button compact" disabled={busyId === item.id} onClick={() => void print(item, true)}><PackageCheck size={15} /> Confirmar recebimento</button> : <span className="table-muted">Aguardando RMA</span>}</td>
       </tr>) : <tr><td colSpan={7} className="table-empty">Nenhum equipamento danificado foi registrado.</td></tr>}</tbody></table></div>
     </section>
     <section className="surface rma-print-note"><Printer size={21} /><div><b>Comprovante térmico de 80 mm</b><p>Ao confirmar, o status muda somente no GIO e o PDF é aberto. Depois disso, a única ação disponível será reimprimir.</p></div><ChevronRight size={19} /></section>

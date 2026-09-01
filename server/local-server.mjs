@@ -34,6 +34,7 @@ const server = createServer(async (request, response) => {
   try {
     if (url.pathname === '/api/health' && request.method === 'GET') return sendHealth(response)
     if (url.pathname === '/api/movidesk/rma' && request.method === 'POST') return await createRmaTicket(request, response)
+    if (url.pathname === '/api/movidesk/rma/photo' && request.method === 'POST') return await uploadRmaPhoto(request, response)
     if (url.pathname.startsWith('/api/movidesk/tickets/') && request.method === 'GET') {
       const ticketId = decodeURIComponent(url.pathname.slice('/api/movidesk/tickets/'.length))
       return await retrieveTicket(ticketId, response)
@@ -58,7 +59,6 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)))
 async function createRmaTicket(request, response) {
   const configuration = movideskConfiguration()
   if (!configuration.configured) return sendJson(response, 503, { error: 'Integração com o Movidesk ainda não configurada.', missing: configuration.missing })
-  if (!allowMovideskRequest()) return sendJson(response, 429, { error: 'Limite temporário de chamadas ao Movidesk atingido. Aguarde um minuto.' })
 
   let body
   try {
@@ -78,14 +78,12 @@ async function createRmaTicket(request, response) {
   const status = process.env.MOVIEDESK_STATUS?.trim() || '1 - Aberto'
   const baseStatus = process.env.MOVIEDESK_BASE_STATUS?.trim() || 'New'
   const description = buildDescription(body)
-  const attachments = photoAttachment(body.photo, body.localCode)
   const action = {
     type: Number(process.env.MOVIEDESK_ACTION_TYPE || 2),
     origin: Number(process.env.MOVIEDESK_ORIGIN || 9),
     description,
     status,
     createdBy: creator,
-    ...(attachments.length ? { attachments } : {}),
   }
   const ticket = {
     type: Number(process.env.MOVIEDESK_TICKET_TYPE || 2),
@@ -108,6 +106,7 @@ async function createRmaTicket(request, response) {
   if (ownerId) ticket.owner = { id: ownerId }
   if (ownerTeam) ticket.ownerTeam = ownerTeam
 
+  if (!allowMovideskRequest()) return sendJson(response, 429, { error: 'Limite temporário de chamadas ao Movidesk atingido. Aguarde um minuto.' })
   const movideskResponse = await fetch(`${movideskBaseUrl}/tickets?token=${encodeURIComponent(configuration.token)}&returnAllProperties=true`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -120,9 +119,65 @@ async function createRmaTicket(request, response) {
     return sendJson(response, 502, { error: 'O Movidesk recusou a criação do ticket.', status: movideskResponse.status, detail: safeMovideskError(responseText) })
   }
   const parsed = parseJson(responseText)
-  const ticketId = extractTicketId(parsed, responseText, movideskResponse.headers.get('location'))
+  let ticketDetails = parsed
+  let internalId = extractInternalTicketId(parsed, responseText, movideskResponse.headers.get('location'))
+  let ticketId = extractTicketId(parsed, responseText, movideskResponse.headers.get('location'))
+  let actionId = extractActionId(parsed)
+  if (internalId && (!actionId || !String(parsed?.protocol ?? '').trim())) {
+    const retrieved = await retrieveTicketDetails(internalId, configuration)
+    if (retrieved) {
+      ticketDetails = retrieved
+      ticketId = String(retrieved.protocol ?? ticketId).trim()
+      actionId = extractActionId(retrieved) || actionId
+    }
+  }
   if (!ticketId) return sendJson(response, 502, { error: 'O Movidesk criou o registro, mas não devolveu o número do ticket.' })
-  return sendJson(response, 201, { ticketId, id: ticketId, localCode: body.localCode })
+  internalId = extractInternalTicketId(ticketDetails, String(internalId), '') || internalId
+
+  let photoUploaded = !body.photo
+  let attachmentError = ''
+  if (body.photo) {
+    if (!internalId || !actionId) {
+      attachmentError = 'O ticket foi criado, mas o Movidesk não informou a ação para anexar a foto.'
+    } else {
+      try {
+        await uploadPhotoToAction({ photo: body.photo, localCode: body.localCode, internalId, actionId, configuration })
+        photoUploaded = true
+      } catch (error) {
+        attachmentError = safeAttachmentError(error)
+        console.error(`Falha ao anexar foto ao ticket ${internalId}: ${attachmentError}`)
+      }
+    }
+  }
+
+  return sendJson(response, 201, {
+    ticketId, id: ticketId, internalId, actionId, photoUploaded, attachmentError, localCode: body.localCode,
+  })
+}
+
+async function uploadRmaPhoto(request, response) {
+  const configuration = movideskConfiguration()
+  if (!configuration.configured) return sendJson(response, 503, { error: 'Integração com o Movidesk ainda não configurada.', missing: configuration.missing })
+
+  let body
+  try {
+    body = await readJsonBody(request)
+  } catch (error) {
+    const tooLarge = String(error?.message || '').includes('15 MB')
+    return sendJson(response, tooLarge ? 413 : 400, { error: tooLarge ? 'A imagem ultrapassa o limite de 15 MB.' : 'O conteúdo enviado não é válido.' })
+  }
+  const internalId = String(body.internalId ?? '').trim()
+  const actionId = String(body.actionId ?? '').trim()
+  if (!/^\d+$/.test(internalId) || !/^\d+$/.test(actionId) || !String(body.photo ?? '').startsWith('data:image/')) {
+    return sendJson(response, 400, { error: 'Os dados necessários para anexar a foto não são válidos.' })
+  }
+
+  try {
+    await uploadPhotoToAction({ photo: body.photo, localCode: body.localCode, internalId, actionId, configuration })
+    return sendJson(response, 200, { photoUploaded: true, internalId, actionId })
+  } catch (error) {
+    return sendJson(response, 502, { error: 'O Movidesk não recebeu a foto.', detail: safeAttachmentError(error) })
+  }
 }
 
 async function retrieveTicket(ticketId, response) {
@@ -138,6 +193,7 @@ async function retrieveTicket(ticketId, response) {
   const ticket = parseJson(responseText)
   return sendJson(response, 200, {
     id: ticket?.id ?? ticketId,
+    actionId: extractActionId(ticket),
     protocol: ticket?.protocol ?? '',
     subject: ticket?.subject ?? '',
     status: ticket?.status ?? '',
@@ -184,11 +240,55 @@ function buildDescription(body) {
   ].join('\n')
 }
 
-function photoAttachment(photo, localCode) {
-  if (!photo || typeof photo !== 'string' || !photo.startsWith('data:image/')) return []
-  const match = photo.match(/^data:image\/([a-zA-Z0-9.+-]+);base64,/)
-  const extension = match?.[1]?.toLowerCase().replace('jpeg', 'jpg') || 'jpg'
-  return [{ fileName: `${localCode}-equipamento.${extension}`, path: photo }]
+async function retrieveTicketDetails(internalId, configuration) {
+  if (!allowMovideskRequest()) return null
+  const query = new URLSearchParams({ token: configuration.token, id: String(internalId) })
+  const movideskResponse = await fetch(`${movideskBaseUrl}/tickets?${query}`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(30000) })
+  if (!movideskResponse.ok) return null
+  return parseJson(await movideskResponse.text())
+}
+
+async function uploadPhotoToAction({ photo, localCode, internalId, actionId, configuration }) {
+  if (!allowMovideskRequest()) throw new Error('Limite temporário do Movidesk atingido. Aguarde um minuto e tente novamente.')
+  const attachment = parsePhotoAttachment(photo, localCode)
+  const form = new FormData()
+  form.append('files', new Blob([attachment.buffer], { type: attachment.mimeType }), attachment.fileName)
+  const query = new URLSearchParams({ token: configuration.token, id: String(internalId), actionId: String(actionId) })
+  const movideskResponse = await fetch(`${movideskBaseUrl}/ticketFileUpload?${query}`, {
+    method: 'POST', headers: { Accept: 'application/json' }, body: form, signal: AbortSignal.timeout(60000),
+  })
+  const responseText = await movideskResponse.text()
+  const parsed = parseJson(responseText)
+  if (!movideskResponse.ok || attachmentResponseHasError(parsed)) {
+    throw new Error(safeMovideskError(responseText) || `Falha ${movideskResponse.status}`)
+  }
+  return parsed
+}
+
+function parsePhotoAttachment(photo, localCode) {
+  const match = String(photo || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([a-zA-Z0-9+/=\r\n]+)$/)
+  if (!match) throw new Error('A imagem não está em um formato válido.')
+  const buffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64')
+  if (!buffer.length) throw new Error('A imagem está vazia.')
+  if (buffer.length > 10 * 1024 * 1024) throw new Error('A foto ultrapassa 10 MB. Selecione uma imagem menor.')
+  const mimeType = match[1].toLowerCase()
+  const subtype = mimeType.split('/')[1].replace('jpeg', 'jpg').replace(/[^a-z0-9]/g, '') || 'jpg'
+  const safeCode = String(localCode || 'RMA').replace(/[^a-zA-Z0-9_-]/g, '') || 'RMA'
+  return { buffer, mimeType, fileName: `${safeCode}-equipamento.${subtype}` }
+}
+
+function attachmentResponseHasError(parsed) {
+  const entries = Array.isArray(parsed) ? parsed : parsed && typeof parsed === 'object' ? [parsed] : []
+  return entries.some(entry => {
+    const error = entry?.error ?? entry?.errors
+    if (Array.isArray(error)) return error.length > 0
+    return Boolean(String(error ?? '').trim())
+  })
+}
+
+function safeAttachmentError(error) {
+  const message = error instanceof Error ? error.message : String(error || '')
+  return safeMovideskError(message) || 'Falha ao enviar a foto. Tente novamente.'
 }
 
 function formatDate(value) {
@@ -285,6 +385,21 @@ function extractTicketId(parsed, text, location) {
   if (locationMatch) return locationMatch[1]
   const textMatch = String(text).match(/^\s*"?(\d+)"?\s*$/)
   return textMatch?.[1] || ''
+}
+
+function extractInternalTicketId(parsed, text, location) {
+  const direct = parsed?.id ?? parsed?.ticketId ?? (typeof parsed === 'number' || typeof parsed === 'string' ? parsed : '')
+  if (/^\d+$/.test(String(direct).trim())) return String(direct).trim()
+  const locationMatch = String(location || '').match(/(?:id=|tickets\/)(\d+)/i)
+  if (locationMatch) return locationMatch[1]
+  const textMatch = String(text).match(/^\s*"?(\d+)"?\s*$/)
+  return textMatch?.[1] || ''
+}
+
+function extractActionId(ticket) {
+  const actions = Array.isArray(ticket?.actions) ? ticket.actions : []
+  const action = actions.find(item => /^\d+$/.test(String(item?.id ?? '').trim()))
+  return action ? String(action.id).trim() : ''
 }
 
 function safeMovideskError(value) {
