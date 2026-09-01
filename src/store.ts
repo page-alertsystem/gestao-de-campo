@@ -32,7 +32,7 @@ export type StockRequest = {
   assignedPersonName?: string
   assignedAt?: string
 }
-export type KmRecord = { id: string; createdAt: string; formOpenedAt?: string; declaredDate?: string; declaredTime?: string; vehicle: string; driver: string; mileage: number; client?: string; destination: string; reason?: string; observation?: string; changeDriver: boolean; hasDamage: boolean; damages: { location: string; description: string }[]; latitude?: number; longitude?: number; accuracy?: number }
+export type KmRecord = { id: string; createdAt: string; formOpenedAt?: string; declaredDate?: string; declaredTime?: string; vehicle: string; driver: string; mileage: number; client?: string; destination: string; reason?: string; observation?: string; changeDriver: boolean; hasDamage: boolean; damages: { location: string; description: string }[]; latitude?: number; longitude?: number; accuracy?: number; pdfFileName?: string; pdfData?: string }
 export type InventoryItem = { id: string; equipment: string; brand: string; model: string; category: 'Insumo' | 'Ferramenta pessoal' | 'Ferramenta rotativa' | 'EPI' | 'Escada'; unit: 'Unidade' | 'Caixa' | 'Metros' | 'Rolo'; quantity: number; minimum: number; code: string; notes: string }
 export type StockAssignment = { id: string; personId: string; inventoryItemId: string; equipment: string; brand: string; model: string; category: InventoryItem['category']; unit: InventoryItem['unit']; code: string; quantity: number; assignedAt: string; assignedBy: string; notes: string; status: 'Pendente' | 'Aprovado e retirado'; approvedAt?: string; photo?: string; sourceRequestCode?: string }
 export type MaterialDisposition = 'Instalado no cliente' | 'Devolvido ao estoque' | 'Danificado'
@@ -61,7 +61,7 @@ export type MaterialUsage = {
 }
 export type AuditCategory = 'Ferramentas' | 'EPIs' | 'Escadas'
 export type AuditItemResult = { inventoryItemId: string; equipment: string; code: string; answers: { question: string; answer: boolean }[]; photo: string; approved: boolean }
-export type AuditRecord = { id: string; personId: string; category: AuditCategory; auditorName: string; auditedName: string; scheduledDate?: string; nextAuditDate: string; startedAt: string; completedAt: string; pdfFileName: string; results: AuditItemResult[] }
+export type AuditRecord = { id: string; personId: string; category: AuditCategory; auditorName: string; auditedName: string; scheduledDate?: string; nextAuditDate: string; startedAt: string; completedAt: string; pdfFileName: string; pdfData?: string; results: AuditItemResult[] }
 export type Notification = { id: string; title: string; detail: string; createdAt: string; read: boolean; critical: boolean }
 export type AdminAccount = { id: string; name: string; email: string; passwordHash: string; mustChangePassword: boolean }
 export type RmaUrgency = 'Baixa' | 'Média' | 'Alta'

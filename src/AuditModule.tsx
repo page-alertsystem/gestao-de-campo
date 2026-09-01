@@ -149,8 +149,8 @@ function AuditSigning({ data, start, results, onCancel, onComplete }: { data: Ap
     const pdfFileName = `Relatório de Auditoria - ${start.category} - ${safeName} - ${todayDate()}.pdf`
     const record: AuditRecord = { id: crypto.randomUUID(), personId: start.personId, category: start.category, auditorName: data.account.name, auditedName: start.personName, scheduledDate: start.scheduledDate, nextAuditDate, startedAt: start.startedAt, completedAt: completedAt.toISOString(), pdfFileName, results }
     try {
-      await createAuditPdf(record, auditorSignature, selfAudit ? undefined : auditedSignature ?? undefined)
-      onComplete({ ...record, results: results.map(result => ({ ...result, photo: '' })) })
+      const pdfData = await createAuditPdf(record, auditorSignature, selfAudit ? undefined : auditedSignature ?? undefined)
+      onComplete({ ...record, pdfData, results: results.map(result => ({ ...result, photo: '' })) })
     } catch {
       setError('Não foi possível gerar o PDF. Tente finalizar novamente.'); setGenerating(false)
     }
@@ -258,7 +258,9 @@ async function createAuditPdf(record: AuditRecord, responsibleSignature: string,
   pdf.addImage(responsibleSignature, 'PNG', 15, 143, 78, 28); pdf.setDrawColor(120, 124, 126); pdf.line(15, 173, 93, 173)
   if (auditedSignature) { pdf.text(`Assinatura da pessoa auditada: ${record.auditedName}`, 108, 137); pdf.addImage(auditedSignature, 'PNG', 108, 143, 78, 28); pdf.line(108, 173, 186, 173) }
   pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(112, 117, 122); pdf.text(`Documento gerado em ${new Date(record.completedAt).toLocaleString('pt-BR')}.`, 15, 190)
+  const pdfData = pdf.output('datauristring')
   pdf.save(record.pdfFileName)
+  return pdfData
 }
 
 function addContainedImage(pdf: jsPDF, dataUrl: string, x: number, y: number, maxWidth: number, maxHeight: number) {

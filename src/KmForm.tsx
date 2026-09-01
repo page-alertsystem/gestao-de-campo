@@ -71,7 +71,9 @@ export function KmForm({ vehicles, clients, driver, onClose, onComplete }: { veh
     }
     if (changeDriver && selectedVehicle) {
       setGenerating(true)
-      await createVehiclePdf({ record, vehicle: selectedVehicle, signature: signature!, vehicleImages, damageImages, damages })
+      const pdfDocument = await createVehiclePdf({ record, vehicle: selectedVehicle, signature: signature!, vehicleImages, damageImages, damages })
+      record.pdfFileName = pdfDocument.fileName
+      record.pdfData = pdfDocument.data
       setGenerating(false)
     }
     onComplete(record)
@@ -205,7 +207,7 @@ async function createVehiclePdf({ record, vehicle, signature, vehicleImages, dam
   pdf.addImage(signature, 'PNG', 15, 177, 90, 32)
   pdf.setDrawColor(120, 124, 126); pdf.line(15, 211, 108, 211)
   pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(112, 117, 122)
-  pdf.text('Documento gerado no celular. Fotos e arquivo não são armazenados pela GIO.', 15, 224)
+  pdf.text('Documento gerado no celular e arquivado no GIO para consulta.', 15, 224)
 
   for (let index = 0; index < damages.length; index++) {
     const damage = damages[index]
@@ -239,7 +241,10 @@ async function createVehiclePdf({ record, vehicle, signature, vehicleImages, dam
   }
   const safeDriver = record.driver.replace(/[^A-Za-zÀ-ÿ0-9]+/g, '-').replace(/^-|-$/g, '')
   const date = new Date(record.createdAt).toLocaleDateString('pt-BR').replaceAll('/', '-')
-  pdf.save(`Relatório de troca de condutor - ${record.vehicle} - ${date} - ${safeDriver}.pdf`)
+  const fileName = `Relatório de troca de condutor - ${record.vehicle} - ${date} - ${safeDriver}.pdf`
+  const data = pdf.output('datauristring')
+  pdf.save(fileName)
+  return { fileName, data }
 }
 
 function addPdfHeader(pdf: jsPDF, title: string) {
