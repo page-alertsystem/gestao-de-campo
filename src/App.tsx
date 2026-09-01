@@ -14,11 +14,12 @@ import { AuditPage, AuditWizard, type AuditStart } from './AuditModule'
 import { AdminCatalogs } from './AdminCatalogs'
 import { DamagedEquipmentPage, RmaRequestPage } from './MaintenanceModule'
 import { fetchSurveyStatus, nextSurveySyncTime, SurveyPage, surveyNeedsStatusSync } from './SurveyModule'
+import { ReportsPage } from './ReportsModule'
 import { formatQuantity, hashPassword, loadAppData, saveAppData, type AppData, type InventoryItem, type StockRequest } from './store'
 
 type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'gestao-auditoria' | 'gestao-solicitacoes' | 'gestao-levantamento' | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes' | 'estoque-pedidos' | 'estoque-baixas' | 'estoque-gerenciamento' | 'manutencao-rma' | 'manutencao-danificados' | 'relatorios' | 'configuracoes'
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
-type QuickRecord = { action: ActionName; summary: string; date: string; time: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
+type QuickRecord = { action: ActionName; summary: string; date: string; time: string; formOpenedAt: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
 
 const nav: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'inicio', label: 'Início', icon: Home },
@@ -71,7 +72,13 @@ const isPersonalPage = (page: Page) => page.startsWith('pessoal-')
 const isStockPage = (page: Page) => page.startsWith('estoque-')
 const isMaintenancePage = (page: Page) => page.startsWith('manutencao-')
 
-const todayInput = () => new Date().toISOString().slice(0, 10)
+const localDateInput = (date: Date) => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+const todayInput = () => localDateInput(new Date())
 const nowInput = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
 export default function App() {
@@ -180,7 +187,7 @@ export default function App() {
     setActiveAction(null)
     showToast(online ? 'Registro realizado com sucesso.' : 'Registro salvo neste celular e aguardando internet.')
     if (data) {
-      const next: AppData = { ...data, trajectories: [...data.trajectories, { id: crypto.randomUUID(), type: record.action, declaredDate: record.date, declaredTime: record.time, recordedAt: new Date().toISOString(), client: record.client, team: record.team, observation: record.observation, latitude: record.latitude, longitude: record.longitude, accuracy: record.accuracy, author: data.account.name, pendingSync: !online }] }
+      const next: AppData = { ...data, trajectories: [...data.trajectories, { id: crypto.randomUUID(), type: record.action, declaredDate: record.date, declaredTime: record.time, recordedAt: new Date().toISOString(), formOpenedAt: record.formOpenedAt, client: record.client, team: record.team, observation: record.observation, latitude: record.latitude, longitude: record.longitude, accuracy: record.accuracy, author: data.account.name, pendingSync: !online }] }
       if (record.action === 'Esqueci meu ponto') next.notifications = [...next.notifications, { id: crypto.randomUUID(), title: 'Ponto esquecido registrado', detail: `${data.account.name} · ${record.summary}`, createdAt: new Date().toISOString(), read: false, critical: true }]
       updateData(next)
     }
@@ -318,7 +325,7 @@ export default function App() {
 
     {activeAction && <QuickRegister action={activeAction} online={online} clients={data.clients.filter(item => item.active).map(item => item.name)} technicians={data.people.filter(item => item.active && item.id !== data.account.id).map(item => item.name)} onClose={() => setActiveAction(null)} onSave={register} />}
     {permissionsOpen && <div className="full-screen-layer"><PermissionMatrix initial={data.permissions} onClose={() => setPermissionsOpen(false)} onSaved={permissions => { updateData({ ...data, permissions }, 'Permissões atualizadas com sucesso.'); setPermissionsOpen(false) }} /></div>}
-    {kmOpen && <KmForm vehicles={data.vehicles.filter(item => item.active)} driver={data.account.name} onClose={() => setKmOpen(false)} onComplete={record => { const next = { ...data, kmRecords: [...data.kmRecords, record], vehicles: data.vehicles.map(vehicle => vehicle.plate === record.vehicle ? { ...vehicle, mileage: record.mileage } : vehicle) }; updateData(next); setKmOpen(false); showToast('Relatório de KM registrado com sucesso.') }} />}
+    {kmOpen && <KmForm vehicles={data.vehicles.filter(item => item.active)} clients={data.clients.filter(item => item.active).map(item => item.name)} driver={data.account.name} onClose={() => setKmOpen(false)} onComplete={record => { const next = { ...data, kmRecords: [...data.kmRecords, record], vehicles: data.vehicles.map(vehicle => vehicle.plate === record.vehicle ? { ...vehicle, mileage: record.mileage } : vehicle) }; updateData(next); setKmOpen(false); showToast('Relatório de KM registrado com sucesso.') }} />}
     {requestOpen && <StockRequestForm code={nextRequestCode(data)} requester={data.account.name} people={data.people} clients={data.clients} onClose={() => setRequestOpen(false)} onComplete={request => {
       const stockRequest: StockRequest = { id: crypto.randomUUID(), ...request, createdAt: new Date().toISOString(), status: 'Pedido recebido', author: data.account.name }
       const technicianExists = data.people.some(person => person.name.trim().toLowerCase() === request.technician.trim().toLowerCase())
@@ -469,15 +476,6 @@ function StockPage({ section, data, onChange }: { section: Page; data: AppData; 
   </>
 }
 
-function ReportsPage({ data }: { data: AppData }) {
-  const reports = ['Trajetos', 'Pontos esquecidos', 'Quilometragem', 'Estoque por técnico', 'Solicitações', 'RMA e equipamentos danificados', 'Auditorias de ferramentas', 'Auditorias de EPI', 'Histórico de ações']
-  return <>
-    <PageIntro eyebrow="Informação para decisão" title="Relatórios" description="Consulte apenas as informações liberadas para o seu grupo de acesso." />
-    <section className="attention-grid"><Metric icon={Route} value={String(data.trajectories.length)} label="Trajetos" /><Metric icon={CarFront} value={String(data.kmRecords.length)} label="Registros de KM" /><Metric icon={PackageCheck} value={String(data.stockRequests.length)} label="Solicitações" /><Metric icon={Wrench} value={String(data.rmaRequests.length)} label="Registros de RMA" /></section>
-    <section className="report-grid">{reports.map((report, index) => <button className="report-card" key={report} onClick={() => exportReport(report, data)}><span><FileBarChart size={22} /></span><div><b>{report}</b><small>{index < 3 ? 'Baixar dados registrados' : 'Exportação disponível conforme os dados'}</small></div><Download size={19} /></button>)}</section>
-  </>
-}
-
 function SettingsPage({ data, onChange, onOpenPermissions }: { data: AppData; onChange: (data: AppData, message: string) => void; onOpenPermissions: () => void }) {
   const departments = ['Técnico', 'RH', 'Logística', 'Estoque', 'RMA', 'Auditor', 'Seg. Trabalho']
   return <>
@@ -489,6 +487,7 @@ function SettingsPage({ data, onChange, onOpenPermissions }: { data: AppData; on
 }
 
 function QuickRegister({ action, online, clients, technicians, onClose, onSave }: { action: ActionName; online: boolean; clients: string[]; technicians: string[]; onClose: () => void; onSave: (record: QuickRecord) => void }) {
+  const [formOpenedAt] = useState(() => new Date().toISOString())
   const [date, setDate] = useState(todayInput())
   const [time, setTime] = useState(nowInput())
   const [client, setClient] = useState('')
@@ -498,7 +497,7 @@ function QuickRegister({ action, online, clients, technicians, onClose, onSave }
   const [location, setLocation] = useState<{ latitude?: number; longitude?: number; accuracy?: number; status: 'capturing' | 'ready' | 'error' }>({ status: 'capturing' })
   const isPoint = action === 'Esqueci meu ponto'
   const needsTeam = action === 'Encontro' || action === 'Desencontro'
-  const minDate = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10)
+  const minDate = localDateInput(new Date(Date.now() - 6 * 86400000))
 
   useEffect(() => {
     navigator.geolocation?.getCurrentPosition(position => setLocation({ status: 'ready', latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy }), () => setLocation({ status: 'error' }), { enableHighAccuracy: true, timeout: 12000 })
@@ -508,7 +507,7 @@ function QuickRegister({ action, online, clients, technicians, onClose, onSave }
     event.preventDefault()
     const detail = isPoint ? `${pointType} · ${time}` : `${client || 'Sem cliente'} · ${time}`
     if (location.status !== 'ready') return
-    onSave({ action, summary: detail, date, time, client: isPoint ? pointType : client, team: selectedTeam, observation, latitude: location.latitude, longitude: location.longitude, accuracy: location.accuracy })
+    onSave({ action, summary: detail, date, time, formOpenedAt, client: isPoint ? pointType : client, team: selectedTeam, observation, latitude: location.latitude, longitude: location.longitude, accuracy: location.accuracy })
   }
 
   return <div className="modal-layer" role="dialog" aria-modal="true" aria-label={action}>
@@ -534,21 +533,6 @@ function PageIntro({ eyebrow, title, description, action }: { eyebrow: string; t
 
 function Metric({ icon: Icon, value, label, tone = '' }: { icon: ComponentType<{ size?: number }>; value: string; label: string; tone?: string }) {
   return <article className={`metric-card ${tone}`}><span><Icon size={21} /></span><div><b>{value}</b><small>{label}</small></div></article>
-}
-
-function exportReport(name: string, data: AppData) {
-  let rows: (string | number)[][] = [['Relatório', 'Data', 'Responsável', 'Detalhes']]
-  if (name === 'Trajetos' || name === 'Pontos esquecidos') rows = [...rows, ...data.trajectories.filter(item => name === 'Trajetos' ? item.type !== 'Esqueci meu ponto' : item.type === 'Esqueci meu ponto').map(item => [item.type, `${item.declaredDate} ${item.declaredTime}`, item.author, `${item.client} ${item.observation}`])]
-  else if (name === 'Quilometragem') rows = [...rows, ...data.kmRecords.map(item => ['KM', item.createdAt, item.driver, `${item.vehicle} · ${item.mileage} km · ${item.destination}`])]
-  else if (name === 'Solicitações') rows = [...rows, ...data.stockRequests.map(item => [item.code, item.createdAt, item.technician, `${item.items} itens · ${item.status}`])]
-  else if (name === 'RMA e equipamentos danificados') rows = [...rows, ...data.rmaRequests.map(item => [item.movideskTicketId || item.localCode, item.withdrawalDate, item.technicianName, `${item.client} · ${item.equipment} · ${item.status}`])]
-  else rows = [...rows, ['Resumo', new Date().toLocaleString('pt-BR'), data.account.name, `Pessoas: ${data.people.length} · Clientes: ${data.clients.length} · Veículos: ${data.vehicles.length} · Itens: ${data.inventory.length}`]]
-  const csv = '\ufeff' + rows.map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(';')).join('\n')
-  const link = document.createElement('a')
-  link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
-  link.download = `${name.toLowerCase().replaceAll(' ', '-')}-${todayInput()}.csv`
-  link.click()
-  URL.revokeObjectURL(link.href)
 }
 
 function nextRequestCode(data: AppData) {

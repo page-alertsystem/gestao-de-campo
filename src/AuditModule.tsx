@@ -25,7 +25,7 @@ const ladderQuestions = [
   'A escada está estável, sem tremer, e aprovada para uso seguro?',
 ]
 
-export type AuditStart = { category: AuditCategory; personId: string; personName: string; items: InventoryItem[]; startedAt: string }
+export type AuditStart = { category: AuditCategory; personId: string; personName: string; items: InventoryItem[]; scheduledDate: string; startedAt: string }
 
 function itemsForAudit(data: AppData, category: AuditCategory, personId: string) {
   const totals = new Map<string, number>()
@@ -76,7 +76,7 @@ export function AuditPage({ data, onStart }: { data: AppData; onStart: (start: A
         <div className="section-heading"><div><p className="eyebrow">{selectedItems.length} {selectedItems.length === 1 ? 'equipamento' : 'equipamentos'}</p><h3>{category} de {selectedPerson.name}</h3></div><span className="audit-heading-icon"><SelectedIcon size={24} /></span></div>
         <div className="next-audit-summary"><CalendarDays size={20} /><div><span>Auditoria marcada para</span><b>{new Date(`${scheduledDate}T12:00:00`).toLocaleDateString('pt-BR')}</b></div><small>{latest ? 'Data definida automaticamente na auditoria anterior.' : 'Primeira auditoria disponível para iniciar hoje.'}</small></div>
         <div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Código</th><th>Marca / modelo</th><th>Categoria</th></tr></thead><tbody>{selectedItems.map(item => <tr key={item.id}><td>{item.equipment}</td><td>{item.code || '—'}</td><td>{[item.brand, item.model].filter(Boolean).join(' / ') || '—'}</td><td>{item.category}</td></tr>)}</tbody></table></div>
-        <div className="audit-start-row"><p><ClipboardCheck size={17} />Será solicitada uma foto e o checklist completo de cada equipamento.</p><button className="primary-button" onClick={() => onStart({ category, personId: selectedPerson.id, personName: selectedPerson.name, items: selectedItems, startedAt: new Date().toISOString() })}>Iniciar auditoria <ChevronRight size={18} /></button></div>
+        <div className="audit-start-row"><p><ClipboardCheck size={17} />Será solicitada uma foto e o checklist completo de cada equipamento.</p><button className="primary-button" onClick={() => onStart({ category, personId: selectedPerson.id, personName: selectedPerson.name, items: selectedItems, scheduledDate, startedAt: new Date().toISOString() })}>Iniciar auditoria <ChevronRight size={18} /></button></div>
       </section>
     </>
   }
@@ -147,7 +147,7 @@ function AuditSigning({ data, start, results, onCancel, onComplete }: { data: Ap
     const nextAuditDate = start.category === 'Escadas' ? oneWeekAfter(completedAt) : oneMonthAfter(completedAt)
     const safeName = start.personName.replace(/[^a-zA-ZÀ-ÿ0-9]+/g, ' ').trim().replace(/\s+/g, '-')
     const pdfFileName = `Relatório de Auditoria - ${start.category} - ${safeName} - ${todayDate()}.pdf`
-    const record: AuditRecord = { id: crypto.randomUUID(), personId: start.personId, category: start.category, auditorName: data.account.name, auditedName: start.personName, nextAuditDate, startedAt: start.startedAt, completedAt: completedAt.toISOString(), pdfFileName, results }
+    const record: AuditRecord = { id: crypto.randomUUID(), personId: start.personId, category: start.category, auditorName: data.account.name, auditedName: start.personName, scheduledDate: start.scheduledDate, nextAuditDate, startedAt: start.startedAt, completedAt: completedAt.toISOString(), pdfFileName, results }
     try {
       await createAuditPdf(record, auditorSignature, selfAudit ? undefined : auditedSignature ?? undefined)
       onComplete({ ...record, results: results.map(result => ({ ...result, photo: '' })) })
@@ -215,6 +215,7 @@ async function createAuditPdf(record: AuditRecord, responsibleSignature: string,
   header(`Relatório de Auditoria de ${record.category}`, 'GIO — Gestão Integrada de Operações')
   const summary = [
     ['Auditor', record.auditorName], ['Pessoa auditada', record.auditedName],
+    ['Data agendada', record.scheduledDate ? new Date(`${record.scheduledDate}T12:00:00`).toLocaleDateString('pt-BR') : 'Não registrado'],
     ['Início', new Date(record.startedAt).toLocaleString('pt-BR')], ['Conclusão', new Date(record.completedAt).toLocaleString('pt-BR')],
     ['Próxima auditoria', new Date(`${record.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR')],
     ['Resultado geral', approved === record.results.length ? 'Aprovada' : 'Com ressalvas'],

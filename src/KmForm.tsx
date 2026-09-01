@@ -11,12 +11,26 @@ const vehiclePhotos = [
 
 type Damage = { id: string; location: string; description: string }
 
-export function KmForm({ vehicles, driver, onClose, onComplete }: { vehicles: Vehicle[]; driver: string; onClose: () => void; onComplete: (record: KmRecord) => void }) {
+function todayInput() {
+  const date = new Date()
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+export function KmForm({ vehicles, clients, driver, onClose, onComplete }: { vehicles: Vehicle[]; clients: string[]; driver: string; onClose: () => void; onComplete: (record: KmRecord) => void }) {
+  const [formOpenedAt] = useState(() => new Date().toISOString())
   const [vehicleId, setVehicleId] = useState('')
   const [km, setKm] = useState('')
   const [changeDriver, setChangeDriver] = useState(false)
   const [hasDamage, setHasDamage] = useState(false)
   const [destination, setDestination] = useState('')
+  const [declaredDate, setDeclaredDate] = useState(todayInput)
+  const [declaredTime, setDeclaredTime] = useState(() => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))
+  const [client, setClient] = useState('')
+  const [reason, setReason] = useState('Atendimento')
+  const [observation, setObservation] = useState('')
   const [damages, setDamages] = useState<Damage[]>([{ id: crypto.randomUUID(), location: '', description: '' }])
   const [vehicleImages, setVehicleImages] = useState<Record<string, File>>({})
   const [damageImages, setDamageImages] = useState<Record<string, { first?: File; second?: File }>>({})
@@ -25,8 +39,7 @@ export function KmForm({ vehicles, driver, onClose, onComplete }: { vehicles: Ve
   const [location, setLocation] = useState<{ latitude?: number; longitude?: number; accuracy?: number; ready: boolean }>({ ready: false })
   const [error, setError] = useState('')
   const selectedVehicle = vehicles.find(vehicle => vehicle.id === vehicleId)
-  const today = new Date().toISOString().slice(0, 10)
-  const now = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  const today = todayInput()
 
   useEffect(() => {
     navigator.geolocation?.getCurrentPosition(position => setLocation({ ready: true, latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy }), () => setLocation({ ready: false }), { enableHighAccuracy: true, timeout: 12000 })
@@ -49,7 +62,13 @@ export function KmForm({ vehicles, driver, onClose, onComplete }: { vehicles: Ve
     }
     setError('')
     if (!location.ready) { setError('Ative a localização do celular para concluir o relatório.'); return }
-    const record: KmRecord = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), vehicle: selectedVehicle?.plate ?? '', driver, mileage: informed, destination, changeDriver, hasDamage, damages: hasDamage ? damages.map(item => ({ location: item.location, description: item.description })) : [], latitude: location.latitude, longitude: location.longitude, accuracy: location.accuracy }
+    const record: KmRecord = {
+      id: crypto.randomUUID(), createdAt: new Date().toISOString(), formOpenedAt, declaredDate, declaredTime,
+      vehicle: selectedVehicle?.plate ?? '', driver, mileage: informed, client: client.trim(), destination,
+      reason, observation: observation.trim(), changeDriver, hasDamage,
+      damages: hasDamage ? damages.map(item => ({ location: item.location, description: item.description })) : [],
+      latitude: location.latitude, longitude: location.longitude, accuracy: location.accuracy,
+    }
     if (changeDriver && selectedVehicle) {
       setGenerating(true)
       await createVehiclePdf({ record, vehicle: selectedVehicle, signature: signature!, vehicleImages, damageImages, damages })
@@ -69,13 +88,13 @@ export function KmForm({ vehicles, driver, onClose, onComplete }: { vehicles: Ve
           <div className="large-form-grid">
             <label>Veículo<select value={vehicleId} onChange={event => { setVehicleId(event.target.value); setKm(''); setError('') }} required><option value="">Selecione um veículo</option>{vehicles.map(vehicle => <option key={vehicle.id} value={vehicle.id}>{vehicle.brand} {vehicle.model} · {vehicle.plate}</option>)}</select></label>
             <label>Condutor atual<input value={driver} readOnly /></label>
-            <label>Data<input type="date" value={today} min={today} max={today} readOnly /></label>
-            <label>Horário informado<input type="time" defaultValue={now} required /></label>
+            <label>Data informada<input type="date" value={declaredDate} min={today} max={today} onChange={event => setDeclaredDate(event.target.value)} required /></label>
+            <label>Horário informado<input type="time" value={declaredTime} onChange={event => setDeclaredTime(event.target.value)} required /></label>
             <label>Quilometragem atual<div className="km-input"><Gauge size={17} /><input type="number" min="0" step="1" value={km} onChange={event => { setKm(event.target.value); setError('') }} placeholder={selectedVehicle ? `Última: ${selectedVehicle.mileage.toLocaleString('pt-BR')} km` : 'Informe o KM'} required /></div></label>
-            <label>Cliente (opcional)<select defaultValue=""><option value="">Sem cliente</option><option>Cliente Alpha</option><option>Hospital Central</option><option>Outros</option></select></label>
+            <label>Cliente (opcional)<input list="km-clientes" value={client} onChange={event => setClient(event.target.value)} placeholder="Sem cliente" /><datalist id="km-clientes">{clients.map(name => <option key={name} value={name} />)}</datalist></label>
             <label className="wide">Destino<input value={destination} onChange={event => setDestination(event.target.value)} placeholder="Informe para onde está indo" required /></label>
-            <label>Motivo<select defaultValue="Atendimento"><option>Atendimento</option><option>Implantação</option><option>Retirada de material</option><option>Devolução</option><option>Outro</option></select></label>
-            <label className="full">Observação (opcional)<textarea placeholder="Inclua uma informação importante, se necessário." /></label>
+            <label>Motivo<select value={reason} onChange={event => setReason(event.target.value)}><option>Atendimento</option><option>Implantação</option><option>Retirada de material</option><option>Devolução</option><option>Outro</option></select></label>
+            <label className="full">Observação (opcional)<textarea value={observation} onChange={event => setObservation(event.target.value)} placeholder="Inclua uma informação importante, se necessário." /></label>
           </div>
           {selectedVehicle && <div className="last-km"><Gauge size={17} /><span>Última quilometragem registrada para este veículo:</span><b>{selectedVehicle.mileage.toLocaleString('pt-BR')} km</b></div>}
           {error && <div className="form-error"><AlertTriangle size={18} />{error}</div>}
@@ -168,7 +187,10 @@ async function createVehiclePdf({ record, vehicle, signature, vehicleImages, dam
   const info = [
     ['Veículo', `${vehicle.brand} ${vehicle.model}`], ['Placa', vehicle.plate],
     ['Quilometragem', `${record.mileage.toLocaleString('pt-BR')} km`], ['Condutor atual', record.driver],
-    ['Data e hora real', new Date(record.createdAt).toLocaleString('pt-BR')], ['Destino', record.destination],
+    ['Data e hora real', new Date(record.createdAt).toLocaleString('pt-BR')],
+    ['Data e hora informada', `${record.declaredDate || 'Não registrado'} ${record.declaredTime || ''}`.trim()],
+    ['Cliente', record.client || 'Sem cliente'], ['Destino', record.destination], ['Motivo', record.reason || 'Não registrado'],
+    ['Observação', record.observation || 'Sem observação'],
     ['Avarias', record.hasDamage ? 'Sim' : 'Não'], ['Precisão do GPS', `${Math.round(record.accuracy || 0)} metros`],
     ['Localização real', `${record.latitude?.toFixed(6)}, ${record.longitude?.toFixed(6)}`],
   ]
@@ -177,7 +199,7 @@ async function createVehiclePdf({ record, vehicle, signature, vehicleImages, dam
   for (const [label, value] of info) {
     pdf.setFont('helvetica', 'bold'); pdf.setTextColor(70, 73, 76); pdf.text(`${label}:`, 15, y)
     pdf.setFont('helvetica', 'normal'); pdf.setTextColor(45, 48, 50); pdf.text(String(value), 55, y)
-    y += 9
+    y += 7
   }
   pdf.setFont('helvetica', 'bold'); pdf.text('Assinatura do condutor atual', 15, 170)
   pdf.addImage(signature, 'PNG', 15, 177, 90, 32)
