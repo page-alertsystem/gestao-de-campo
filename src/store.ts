@@ -64,7 +64,13 @@ export type AuditItemResult = { inventoryItemId: string; equipment: string; code
 export type AuditRecord = { id: string; personId: string; category: AuditCategory; auditorName: string; auditedName: string; nextAuditDate: string; startedAt: string; completedAt: string; pdfFileName: string; results: AuditItemResult[] }
 export type Notification = { id: string; title: string; detail: string; createdAt: string; read: boolean; critical: boolean }
 export type AdminAccount = { id: string; name: string; email: string; passwordHash: string; mustChangePassword: boolean }
-export type RmaUrgency = 'Baixa' | 'Normal' | 'Alta' | 'Urgente'
+export type RmaUrgency = 'Baixa' | 'Média' | 'Alta'
+
+function normalizeRmaUrgency(value: unknown): RmaUrgency {
+  if (value === 'Baixa' || value === 'Alta') return value
+  if (value === 'Urgente') return 'Alta'
+  return 'Média'
+}
 export type RmaStatus = 'Aguardando integração Movidesk' | 'Enviado ao Movidesk' | 'Pedido recebido'
 export type RmaRequest = {
   id: string
@@ -217,7 +223,7 @@ export async function loadAppData(): Promise<AppData> {
       title: item.title ?? `RMA: Manutenção - ${item.equipment} - ${item.client}`,
       service: item.service ?? 'Manutenção',
       category: item.category ?? 'RMA',
-      urgency: item.urgency ?? 'Normal',
+      urgency: normalizeRmaUrgency(item.urgency),
       photo: item.photo ?? '',
       status: item.status ?? 'Aguardando integração Movidesk',
       printCount: item.printCount ?? 0,

@@ -29,7 +29,7 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
   const [withdrawalDate, setWithdrawalDate] = useState(todayInput())
   const [service, setService] = useState('Manutenção')
   const [category, setCategory] = useState('RMA')
-  const [urgency, setUrgency] = useState<RmaUrgency>('Normal')
+  const [urgency, setUrgency] = useState<RmaUrgency>('Média')
   const [details, setDetails] = useState('')
   const [photo, setPhoto] = useState('')
   const [sending, setSending] = useState(false)
@@ -49,7 +49,7 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
 
   const reset = () => {
     setClient(''); setEquipment(''); setWithdrawalDate(todayInput()); setService('Manutenção')
-    setCategory('RMA'); setUrgency('Normal'); setDetails(''); setPhoto('')
+    setCategory('RMA'); setUrgency('Média'); setDetails(''); setPhoto('')
   }
 
   const submit = async (event: FormEvent) => {
@@ -108,7 +108,7 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
           <label>Técnico responsável<input value={data.account.name} readOnly /></label>
           <label>Serviço<input value={service} onChange={event => setService(event.target.value)} placeholder="Ex.: Manutenção" required /></label>
           <label>Categoria<input value={category} onChange={event => setCategory(event.target.value)} placeholder="Ex.: RMA" required /></label>
-          <label>Urgência<select value={urgency} onChange={event => setUrgency(event.target.value as RmaUrgency)}><option>Baixa</option><option>Normal</option><option>Alta</option><option>Urgente</option></select></label>
+          <label>Urgência<select value={urgency} onChange={event => setUrgency(event.target.value as RmaUrgency)}><option>Baixa</option><option>Média</option><option>Alta</option></select></label>
           <label className="rma-details">Detalhes do problema<textarea value={details} onChange={event => setDetails(event.target.value)} placeholder="Descreva o defeito, sintomas e demais informações importantes." required /></label>
           <label className={photo ? 'rma-photo-field filled' : 'rma-photo-field'}>
             {photo ? <img src={photo} alt="Foto do equipamento" /> : <Camera size={28} />}

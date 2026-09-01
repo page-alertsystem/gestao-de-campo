@@ -73,9 +73,10 @@ async function createRmaTicket(request, response) {
 
   const creator = { id: configuration.requesterId }
   const category = process.env.MOVIEDESK_CATEGORY?.trim() || String(body.category || 'RMA')
-  const urgency = process.env.MOVIEDESK_URGENCY?.trim() || String(body.urgency || 'Normal')
-  const status = process.env.MOVIEDESK_STATUS?.trim() || 'Novo'
-  const baseStatus = process.env.MOVIEDESK_BASE_STATUS?.trim() || 'Novo'
+  const requestedUrgency = process.env.MOVIEDESK_URGENCY?.trim() || String(body.urgency || 'Média')
+  const urgency = requestedUrgency === 'Normal' ? 'Média' : requestedUrgency === 'Urgente' ? 'Alta' : requestedUrgency
+  const status = process.env.MOVIEDESK_STATUS?.trim() || '1 - Aberto'
+  const baseStatus = process.env.MOVIEDESK_BASE_STATUS?.trim() || 'New'
   const description = buildDescription(body)
   const attachments = photoAttachment(body.photo, body.localCode)
   const action = {
@@ -95,10 +96,11 @@ async function createRmaTicket(request, response) {
     baseStatus,
     origin: Number(process.env.MOVIEDESK_ORIGIN || 9),
     createdBy: creator,
-    clients: [{ id: configuration.requesterId }],
     actions: [action],
   }
 
+  const clientId = process.env.MOVIEDESK_CLIENT_ID?.trim()
+  if (clientId) ticket.clients = [{ id: clientId }]
   const serviceId = Number(process.env.MOVIEDESK_SERVICE_FIRST_LEVEL_ID || 0)
   if (serviceId > 0) ticket.serviceFirstLevelId = serviceId
   const ownerId = process.env.MOVIEDESK_OWNER_ID?.trim()
