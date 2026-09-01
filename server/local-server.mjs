@@ -232,12 +232,24 @@ function allowMovideskRequest() {
 
 function buildDescription(body) {
   return [
-    'SOLICITAÇÃO DE RMA PELO GIO', '',
-    `Código GIO: ${body.localCode}`, `Cliente informado: ${body.client}`, `Equipamento: ${body.equipment}`,
-    `Data da retirada: ${formatDate(body.withdrawalDate)}`, `Técnico solicitante: ${body.technician}`,
-    `Serviço: ${body.service || 'Manutenção'}`, `Categoria: ${body.category || 'RMA'}`, `Urgência: ${body.urgency || 'Normal'}`,
-    '', 'Descrição do problema:', String(body.details), '', `Registrado no GIO em ${new Date().toLocaleString('pt-BR')}.`,
-  ].join('\n')
+    'SOLICITAÇÃO DE RMA PELO GIO',
+    `Código GIO: ${body.localCode}`,
+    `Cliente informado: ${body.client}`,
+    `Equipamento: ${body.equipment}`,
+    `Data da retirada: ${formatDate(body.withdrawalDate)}`,
+    `Técnico solicitante: ${body.technician}`,
+    `Serviço: ${body.service || 'Manutenção'}`,
+    `Categoria: ${body.category || 'RMA'}`,
+    `Urgência: ${body.urgency || 'Normal'}`,
+    `Descrição do problema: ${body.details}`,
+    `Registrado no GIO em ${new Date().toLocaleString('pt-BR')}.`,
+  ].map(line => escapeHtml(line).replace(/\r?\n/g, '<br>')).join('<br>')
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character])
 }
 
 async function retrieveTicketDetails(internalId, configuration) {
