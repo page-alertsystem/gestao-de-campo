@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { formatQuantity, type AppData, type StockAssignment } from './store'
 
-type ReportId = 'km' | 'registro-dia' | 'ponto' | 'auditoria' | 'solicitacoes' | 'ferramentas' | 'epis' | 'insumos' | 'baixas' | 'rma' | 'levantamentos'
+export type ReportId = 'km' | 'registro-dia' | 'ponto' | 'auditoria' | 'solicitacoes' | 'ferramentas' | 'epis' | 'insumos' | 'baixas' | 'rma' | 'levantamentos'
 type CellValue = string | number
 type ReportDetail = { label: string; value?: string; image?: string }
 type ReportRow = {
@@ -312,12 +312,11 @@ function statusTone(value: CellValue) {
   return 'warning'
 }
 
-export function ReportsPage({ data }: { data: AppData }) {
-  const [activeId, setActiveId] = useState<ReportId>('km')
+export function ReportsPage({ data, reportId }: { data: AppData; reportId: ReportId }) {
   const [filters, setFilters] = useState<Filters>(emptyFilters)
   const [details, setDetails] = useState<{ report: ReportDefinition; row: ReportRow } | null>(null)
   const [notice, setNotice] = useState('')
-  const active = reports.find(report => report.id === activeId)!
+  const active = reports.find(report => report.id === reportId)!
   const sourceRows = useMemo(() => active.rows(data), [active, data])
   const filteredRows = useMemo(() => filterRows(sourceRows, filters), [sourceRows, filters])
   const options = {
@@ -337,7 +336,6 @@ export function ReportsPage({ data }: { data: AppData }) {
   return <>
     <section className="page-intro"><div><p className="eyebrow">Informação para decisão</p><h2>Relatórios</h2><p>Consulte cada informação na própria interface, aplique filtros e exporte para o Excel.</p></div><div className="report-page-actions"><button className="secondary-button" onClick={downloadCurrent}><Download size={17} /> Exportar aba atual</button><button className="primary-button" onClick={downloadAll}><FileSpreadsheet size={18} /> Exportar todos</button></div></section>
     {notice && <div className="report-notice"><FileSpreadsheet size={18} />{notice}</div>}
-    <section className="report-tabs" aria-label="Tipos de relatório">{reports.map(report => { const Icon = report.icon; return <button key={report.id} className={activeId === report.id ? 'active' : ''} onClick={() => { setActiveId(report.id); setFilters(emptyFilters); setDetails(null) }}><Icon size={17} />{report.label}</button> })}</section>
     <section className="surface report-filter-card">
       <div className="report-filter-title"><Filter size={19} /><div><b>Filtros do relatório</b><small>{filteredRows.length} de {sourceRows.length} registros apresentados</small></div></div>
       <div className="report-filter-grid">

@@ -14,10 +14,10 @@ import { AuditPage, AuditWizard, type AuditStart } from './AuditModule'
 import { AdminCatalogs } from './AdminCatalogs'
 import { DamagedEquipmentPage, RmaRequestPage } from './MaintenanceModule'
 import { fetchSurveyStatus, nextSurveySyncTime, SurveyPage, surveyNeedsStatusSync } from './SurveyModule'
-import { ReportsPage } from './ReportsModule'
+import { ReportsPage, type ReportId } from './ReportsModule'
 import { formatQuantity, hashPassword, loadAppData, saveAppData, type AppData, type InventoryItem, type StockRequest } from './store'
 
-type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'gestao-auditoria' | 'gestao-solicitacoes' | 'gestao-levantamento' | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes' | 'estoque-pedidos' | 'estoque-baixas' | 'estoque-gerenciamento' | 'manutencao-rma' | 'manutencao-danificados' | 'relatorios' | 'configuracoes'
+type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'gestao-auditoria' | 'gestao-solicitacoes' | 'gestao-levantamento' | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes' | 'estoque-pedidos' | 'estoque-baixas' | 'estoque-gerenciamento' | 'manutencao-rma' | 'manutencao-danificados' | 'relatorios-km' | 'relatorios-registro-dia' | 'relatorios-ponto' | 'relatorios-auditoria' | 'relatorios-solicitacoes' | 'relatorios-ferramentas' | 'relatorios-epis' | 'relatorios-insumos' | 'relatorios-baixas' | 'relatorios-rma' | 'relatorios-levantamentos' | 'configuracoes'
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; formOpenedAt: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
 
@@ -28,7 +28,7 @@ const nav: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[]
   { id: 'pessoal-ferramentas', label: 'Pessoal', icon: Users },
   { id: 'estoque-baixas', label: 'Estoque', icon: Boxes },
   { id: 'manutencao-rma', label: 'Manutenção', icon: Wrench },
-  { id: 'relatorios', label: 'Relatórios', icon: FileBarChart },
+  { id: 'relatorios-km', label: 'Relatórios', icon: FileBarChart },
   { id: 'configuracoes', label: 'Configurações', icon: Settings },
 ]
 
@@ -66,11 +66,25 @@ const maintenancePages: { id: Page; label: string; icon: ComponentType<{ size?: 
   { id: 'manutencao-rma', label: 'RMA', icon: Wrench },
   { id: 'manutencao-danificados', label: 'Equipamentos danificados', icon: PackageCheck },
 ]
+const reportPages: { id: Page; reportId: ReportId; label: string; icon: ComponentType<{ size?: number }> }[] = [
+  { id: 'relatorios-km', reportId: 'km', label: 'KM', icon: CarFront },
+  { id: 'relatorios-registro-dia', reportId: 'registro-dia', label: 'Registro do dia', icon: MapPin },
+  { id: 'relatorios-ponto', reportId: 'ponto', label: 'Esqueci meu ponto', icon: ClipboardCheck },
+  { id: 'relatorios-auditoria', reportId: 'auditoria', label: 'Auditorias', icon: ShieldCheck },
+  { id: 'relatorios-solicitacoes', reportId: 'solicitacoes', label: 'Solicitações ao estoque', icon: PackageCheck },
+  { id: 'relatorios-ferramentas', reportId: 'ferramentas', label: 'Ferramentas', icon: Wrench },
+  { id: 'relatorios-epis', reportId: 'epis', label: 'EPIs', icon: ShieldCheck },
+  { id: 'relatorios-insumos', reportId: 'insumos', label: 'Insumos', icon: Boxes },
+  { id: 'relatorios-baixas', reportId: 'baixas', label: 'Baixa de Materiais', icon: ClipboardCheck },
+  { id: 'relatorios-rma', reportId: 'rma', label: 'RMA', icon: Wrench },
+  { id: 'relatorios-levantamentos', reportId: 'levantamentos', label: 'Levantamentos', icon: FileBarChart },
+]
 const isOperationPage = (page: Page) => page.startsWith('operacao-')
 const isManagementPage = (page: Page) => page.startsWith('gestao-')
 const isPersonalPage = (page: Page) => page.startsWith('pessoal-')
 const isStockPage = (page: Page) => page.startsWith('estoque-')
 const isMaintenancePage = (page: Page) => page.startsWith('manutencao-')
+const isReportPage = (page: Page) => page.startsWith('relatorios-')
 
 const localDateInput = (date: Date) => {
   const year = date.getFullYear()
@@ -93,6 +107,7 @@ export default function App() {
   const [personalOpen, setPersonalOpen] = useState(false)
   const [stockOpen, setStockOpen] = useState(false)
   const [maintenanceOpen, setMaintenanceOpen] = useState(false)
+  const [reportsOpen, setReportsOpen] = useState(false)
   const [activeAction, setActiveAction] = useState<ActionName | null>(null)
   const [permissionsOpen, setPermissionsOpen] = useState(false)
   const [kmOpen, setKmOpen] = useState(false)
@@ -172,6 +187,7 @@ export default function App() {
     if (isPersonalPage(next)) setPersonalOpen(true)
     if (isStockPage(next)) setStockOpen(true)
     if (isMaintenancePage(next)) setMaintenanceOpen(true)
+    if (isReportPage(next)) setReportsOpen(true)
     setDrawer(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -209,7 +225,8 @@ export default function App() {
   const currentPerson = data.people.find(person => person.id === data.account.id)
   const canManageStock = currentPerson?.groups.some(group => group === 'Administrador' || group === 'Estoque') ?? false
   const visibleStockPages = stockPages.filter(item => item.id !== 'estoque-gerenciamento' || canManageStock)
-  const title = operationPages.find(item => item.id === page)?.label ?? managementPages.find(item => item.id === page)?.label ?? personalPages.find(item => item.id === page)?.label ?? stockPages.find(item => item.id === page)?.label ?? maintenancePages.find(item => item.id === page)?.label ?? nav.find(item => item.id === page)?.label ?? 'Início'
+  const activeReport = reportPages.find(item => item.id === page)
+  const title = operationPages.find(item => item.id === page)?.label ?? managementPages.find(item => item.id === page)?.label ?? personalPages.find(item => item.id === page)?.label ?? stockPages.find(item => item.id === page)?.label ?? maintenancePages.find(item => item.id === page)?.label ?? activeReport?.label ?? nav.find(item => item.id === page)?.label ?? 'Início'
 
   return <div className="app-shell">
     <aside className={drawer ? 'sidebar open' : 'sidebar'}>
@@ -265,6 +282,15 @@ export default function App() {
               return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
             })}</div>}
           </div>
+          if (item.label === 'Relatórios') return <div className="nav-group" key={item.id}>
+            <button className={isReportPage(page) ? 'nav-item active' : 'nav-item'} onClick={() => setReportsOpen(current => !current)} aria-expanded={reportsOpen}>
+              <Icon size={20} /><span>{item.label}</span><ChevronDown className={reportsOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
+            </button>
+            {reportsOpen && <div className="nav-submenu">{reportPages.map(subitem => {
+              const SubIcon = subitem.icon
+              return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
+            })}</div>}
+          </div>
           return <button key={item.id} className={page === item.id ? 'nav-item active' : 'nav-item'} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label}</span></button>
         })}
       </nav>
@@ -310,14 +336,14 @@ export default function App() {
         {page === 'estoque-gerenciamento' && canManageStock && <StockManagement data={data} onChange={updateData} />}
         {page === 'manutencao-rma' && <RmaRequestPage data={data} onChange={updateData} />}
         {page === 'manutencao-danificados' && <DamagedEquipmentPage data={data} onChange={updateData} />}
-        {page === 'relatorios' && <ReportsPage data={data} />}
+        {activeReport && <ReportsPage key={activeReport.reportId} data={data} reportId={activeReport.reportId} />}
         {page === 'configuracoes' && <SettingsPage data={data} onChange={updateData} onOpenPermissions={() => setPermissionsOpen(true)} />}
       </main>
 
       <nav className="mobile-nav" aria-label="Navegação móvel">
         {nav.map(item => {
           const Icon = item.icon
-          const active = item.label === 'Operação' ? isOperationPage(page) : item.label === 'Gestão' ? isManagementPage(page) : item.label === 'Pessoal' ? isPersonalPage(page) : item.label === 'Estoque' ? isStockPage(page) : item.label === 'Manutenção' ? isMaintenancePage(page) : page === item.id
+          const active = item.label === 'Operação' ? isOperationPage(page) : item.label === 'Gestão' ? isManagementPage(page) : item.label === 'Pessoal' ? isPersonalPage(page) : item.label === 'Estoque' ? isStockPage(page) : item.label === 'Manutenção' ? isMaintenancePage(page) : item.label === 'Relatórios' ? isReportPage(page) : page === item.id
           return <button key={item.id} className={active ? 'active' : ''} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label === 'Configurações' ? 'Mais' : item.label}</span></button>
         })}
       </nav>
