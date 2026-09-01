@@ -129,6 +129,28 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
   const canReceive = currentPerson?.groups.some(group => ['Administrador', 'RMA', 'Manutenção'].includes(group)) ?? false
   const requests = useMemo(() => [...data.rmaRequests].reverse().filter(item => `${item.movideskTicketId} ${item.localCode} ${item.client} ${item.technicianName} ${item.equipment}`.toLowerCase().includes(query.toLowerCase())), [data.rmaRequests, query])
 
+  useEffect(() => {
+    const legacyTickets = data.rmaRequests.filter(item => item.status === 'Enviado ao Movidesk' && /^\d{1,11}$/.test(item.movideskTicketId))
+    if (!legacyTickets.length) return
+    let active = true
+    Promise.all(legacyTickets.map(async item => {
+      try {
+        const response = await fetch(`/api/movidesk/tickets/${encodeURIComponent(item.movideskTicketId)}`, { headers: { Accept: 'application/json' } })
+        if (!response.ok) return null
+        const ticket = await response.json() as { protocol?: string | number }
+        const protocol = String(ticket.protocol ?? '').trim()
+        return /^\d{12,}$/.test(protocol) ? { id: item.id, protocol } : null
+      } catch { return null }
+    })).then(resolved => {
+      if (!active) return
+      const protocols = new Map(resolved.filter((item): item is { id: string; protocol: string } => Boolean(item)).map(item => [item.id, item.protocol]))
+      if (!protocols.size) return
+      const next: AppData = { ...data, rmaRequests: data.rmaRequests.map(item => protocols.has(item.id) ? { ...item, movideskTicketId: protocols.get(item.id)! } : item) }
+      onChange(next, 'Número público do ticket Movidesk atualizado no GIO.')
+    })
+    return () => { active = false }
+  }, [data, onChange])
+
   const print = async (request: RmaRequest, receiving: boolean) => {
     if (receiving && !window.confirm(`Confirmar o recebimento de ${request.equipment}? Esta ação não poderá ser desfeita.`)) return
     const preview = window.open('', '_blank')

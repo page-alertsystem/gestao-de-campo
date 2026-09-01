@@ -138,6 +138,7 @@ async function retrieveTicket(ticketId, response) {
   const ticket = parseJson(responseText)
   return sendJson(response, 200, {
     id: ticket?.id ?? ticketId,
+    protocol: ticket?.protocol ?? '',
     subject: ticket?.subject ?? '',
     status: ticket?.status ?? '',
     category: ticket?.category ?? '',
@@ -278,7 +279,7 @@ function parseJson(value) {
 }
 
 function extractTicketId(parsed, text, location) {
-  const direct = parsed?.id ?? parsed?.ticketId ?? (typeof parsed === 'number' || typeof parsed === 'string' ? parsed : '')
+  const direct = parsed?.protocol ?? parsed?.ticketNumber ?? parsed?.id ?? parsed?.ticketId ?? (typeof parsed === 'number' || typeof parsed === 'string' ? parsed : '')
   if (String(direct).trim()) return String(direct).trim()
   const locationMatch = String(location || '').match(/(?:id=|tickets\/)(\d+)/i)
   if (locationMatch) return locationMatch[1]
