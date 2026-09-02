@@ -25,7 +25,9 @@ jobs:
         with:
           node-version: 24
       - name: Preparar pnpm
-        run: corepack enable
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - name: Instalar dependências
         run: pnpm install --frozen-lockfile
       - name: Gerar o site
