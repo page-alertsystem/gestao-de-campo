@@ -2,6 +2,8 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Camera, CheckCircle2, ChevronRight, FileText, PackageCheck, Printer, RotateCcw, Search, Send, Wrench } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import type { AppData, RmaRequest, RmaUrgency } from './store'
+import { publicAsset } from './paths'
+import { serverApiFetch } from './serverApi'
 
 const todayInput = () => new Date().toISOString().slice(0, 10)
 const movideskEndpoint = String(import.meta.env.VITE_MOVIEDESK_RMA_ENDPOINT ?? '/api/movidesk/rma').trim()
@@ -59,7 +61,7 @@ function rmaPayload(request: RmaRequest, photo = request.photo) {
 
 async function sendRmaToMovidesk(request: RmaRequest, optimizeStoredPhoto = false) {
   const photo = request.photo && optimizeStoredPhoto ? await optimizeImage(request.photo) : request.photo
-  const response = await fetch(movideskEndpoint, {
+  const response = await serverApiFetch(movideskEndpoint, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(rmaPayload(request, photo)),
   })
   const result = await response.json().catch(() => ({})) as MovideskRmaResult & { error?: string }
@@ -107,7 +109,7 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
 
   useEffect(() => {
     let active = true
-    fetch(serverHealthEndpoint, { headers: { Accept: 'application/json' } })
+    serverApiFetch(serverHealthEndpoint, { headers: { Accept: 'application/json' } }, false)
       .then(async response => {
         if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) throw new Error('Servidor indisponível')
         return response.json() as Promise<{ movideskConfigured?: boolean }>
@@ -208,7 +210,7 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
     let active = true
     Promise.all(legacyTickets.map(async item => {
       try {
-        const response = await fetch(`/api/movidesk/tickets/${encodeURIComponent(item.movideskTicketId)}`, { headers: { Accept: 'application/json' } })
+        const response = await serverApiFetch(`/api/movidesk/tickets/${encodeURIComponent(item.movideskTicketId)}`, { headers: { Accept: 'application/json' } })
         if (!response.ok) return null
         const ticket = await response.json() as { protocol?: string | number }
         const protocol = String(ticket.protocol ?? '').trim()
@@ -231,7 +233,7 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
       let updated: RmaRequest
       let message: string
       if (request.movideskTicketId && request.movideskInternalId && request.movideskActionId && optimizedPhoto) {
-        const response = await fetch('/api/movidesk/rma/photo', {
+        const response = await serverApiFetch('/api/movidesk/rma/photo', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             internalId: request.movideskInternalId, actionId: request.movideskActionId,
@@ -299,7 +301,7 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
 
 async function openThermalReceipt(request: RmaRequest, preview: Window | null) {
   let logo = ''
-  try { logo = await fetch('/alert-logo.png').then(response => response.blob()).then(blobToDataUrl) } catch { /* O comprovante continua identificável pelo texto. */ }
+  try { logo = await fetch(publicAsset('alert-logo.png')).then(response => response.blob()).then(blobToDataUrl) } catch { /* O comprovante continua identificável pelo texto. */ }
   const measuring = new jsPDF({ unit: 'mm', format: [80, 180] })
   const descriptionLines = measuring.splitTextToSize(request.details, 68) as string[]
   const pageHeight = Math.max(156, 102 + descriptionLines.length * 4 + 52)

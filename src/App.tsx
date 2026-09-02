@@ -16,7 +16,9 @@ import { DamagedEquipmentPage, RmaRequestPage } from './MaintenanceModule'
 import { fetchSurveyStatus, nextSurveySyncTime, SurveyPage, surveyNeedsStatusSync } from './SurveyModule'
 import { ReportsPage, type ReportId } from './ReportsModule'
 import { DocumentsPage, type DocumentSection } from './DocumentsModule'
-import { formatQuantity, hashPassword, loadAppData, saveAppData, type AppData, type InventoryItem, type StockRequest } from './store'
+import { formatQuantity, hashPassword, loadAppData, normalizeAppData, saveAppData, type AppData, type InventoryItem, type StockRequest } from './store'
+import { clearServerSession, initializeCentralData, loginCentralServer, saveCentralData } from './serverApi'
+import { publicAsset } from './paths'
 
 type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'gestao-auditoria' | 'gestao-solicitacoes' | 'gestao-levantamento' | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes' | 'estoque-pedidos' | 'estoque-baixas' | 'estoque-gerenciamento' | 'manutencao-rma' | 'manutencao-danificados' | 'documentos-auditorias' | 'documentos-troca-veiculo' | 'relatorios-km' | 'relatorios-registro-dia' | 'relatorios-ponto' | 'relatorios-auditoria' | 'relatorios-solicitacoes' | 'relatorios-ferramentas' | 'relatorios-epis' | 'relatorios-insumos' | 'relatorios-baixas' | 'relatorios-rma' | 'relatorios-levantamentos' | 'configuracoes'
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
@@ -127,9 +129,16 @@ export default function App() {
   const [activities, setActivities] = useState<{ title: string; detail: string; tone: string }[]>([])
 
   useEffect(() => {
-    loadAppData().then(stored => {
-      setData(stored)
-      setActivities(stored.trajectories.slice(-5).reverse().map(item => ({ title: item.type, detail: `${item.client || 'Sem cliente'} · ${item.declaredTime}`, tone: item.type === 'Esqueci meu ponto' ? 'warning' : 'success' })))
+    loadAppData().then(async stored => {
+      const central = await initializeCentralData(stored)
+      const ready = normalizeAppData(central.data)
+      if (central.active && !central.authenticated) {
+        sessionStorage.removeItem('gio-admin-session')
+        setLogged(false)
+      }
+      setData(ready)
+      void saveAppData(ready)
+      setActivities(ready.trajectories.slice(-5).reverse().map(item => ({ title: item.type, detail: `${item.client || 'Sem cliente'} · ${item.declaredTime}`, tone: item.type === 'Esqueci meu ponto' ? 'warning' : 'success' })))
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [])
@@ -153,6 +162,7 @@ export default function App() {
   const updateData = (next: AppData, message?: string) => {
     setData(next)
     void saveAppData(next)
+    void saveCentralData(next).catch(error => showToast(error instanceof Error ? error.message : 'Não foi possível salvar no servidor deste notebook.'))
     if (message) showToast(message)
   }
 
@@ -178,6 +188,7 @@ export default function App() {
           })
           const next = { ...current, surveyRequests }
           void saveAppData(next)
+          void saveCentralData(next).catch(() => undefined)
           if (resolvedNow) showToast(`${resolvedNow} ${resolvedNow === 1 ? 'levantamento foi resolvido' : 'levantamentos foram resolvidos'} no Movidesk.`)
           return next
         })
@@ -203,6 +214,7 @@ export default function App() {
 
   const signOut = () => {
     sessionStorage.removeItem('gio-admin-session')
+    clearServerSession()
     setLogged(false)
   }
 
@@ -218,9 +230,19 @@ export default function App() {
     }
   }
 
-  if (loading) return <main className="loading-page"><img src="/alert-logo.png" alt="Alert" /><span>Preparando a GIO...</span></main>
+  if (loading) return <main className="loading-page"><img src={publicAsset('alert-logo.png')} alt="Alert" /><span>Preparando a GIO...</span></main>
   if (!data) return <main className="loading-page"><AlertTriangle /><b>Não foi possível abrir os dados locais.</b></main>
   if (!logged) return <Login onLogin={async (email, password) => {
+    const central = await loginCentralServer(email, password)
+    if (central.usedServer) {
+      if (central.error || !central.data) return central.error || 'Não foi possível abrir os dados do servidor.'
+      const ready = normalizeAppData(central.data)
+      setData(ready)
+      void saveAppData(ready)
+      sessionStorage.setItem('gio-admin-session', '1')
+      setLogged(true)
+      return null
+    }
     if (email.trim().toLowerCase() !== data.account.email.toLowerCase() || await hashPassword(password) !== data.account.passwordHash) return 'E-mail ou senha inválidos.'
     sessionStorage.setItem('gio-admin-session', '1')
     setLogged(true)
@@ -241,7 +263,7 @@ export default function App() {
   return <div className="app-shell">
     <aside className={drawer ? 'sidebar open' : 'sidebar'}>
       <div className="brand-block">
-        <div className="brand-logo-card"><img src="/alert-logo.png" alt="Alert" /></div>
+        <div className="brand-logo-card"><img src={publicAsset('alert-logo.png')} alt="Alert" /></div>
         <div><b>GIO</b><span>Gestão Integrada<br />de Operações</span></div>
       </div>
       <nav className="main-nav" aria-label="Navegação principal">
@@ -397,7 +419,7 @@ function Login({ onLogin }: { onLogin: (email: string, password: string) => Prom
   }
   return <main className="login-page">
     <section className="login-message">
-      <div className="login-brand"><span className="login-logo"><img src="/alert-logo.png" alt="Alert" /></span><b>GIO</b></div>
+      <div className="login-brand"><span className="login-logo"><img src={publicAsset('alert-logo.png')} alt="Alert" /></span><b>GIO</b></div>
       <p className="eyebrow light">Gestão Integrada de Operações</p>
       <h1>Operação organizada.<br />Equipe conectada.</h1>
       <p>Uma única plataforma para acompanhar equipes, trajetos, veículos, estoque e auditorias.</p>
@@ -405,7 +427,7 @@ function Login({ onLogin }: { onLogin: (email: string, password: string) => Prom
     </section>
     <section className="login-panel">
       <form className="login-card" onSubmit={submit}>
-        <div className="mobile-login-brand"><span className="login-logo"><img src="/alert-logo.png" alt="Alert" /></span><b>GIO</b></div>
+        <div className="mobile-login-brand"><span className="login-logo"><img src={publicAsset('alert-logo.png')} alt="Alert" /></span><b>GIO</b></div>
         <p className="eyebrow">Acesso seguro</p>
         <h2>Bem-vindo à GIO</h2>
         <p className="form-intro">Entre com seu e-mail e senha para continuar.</p>
@@ -430,7 +452,7 @@ function PasswordChange({ onSave, onSignOut }: { onSave: (password: string) => P
     if (password !== confirmation) return setError('As senhas informadas são diferentes.')
     await onSave(password)
   }
-  return <main className="password-change-page"><form className="login-card" onSubmit={submit}><img className="password-logo" src="/alert-logo.png" alt="Alert" /><p className="eyebrow">Primeiro acesso</p><h2>Crie sua nova senha</h2><p className="form-intro">A senha provisória só pode ser usada uma vez.</p><label>Nova senha<input type="password" value={password} onChange={event => setPassword(event.target.value)} required /></label><label>Confirmar nova senha<input type="password" value={confirmation} onChange={event => setConfirmation(event.target.value)} required /></label>{error && <div className="login-error"><AlertTriangle size={17} />{error}</div>}<button className="primary-button full">Salvar nova senha <ChevronRight size={18} /></button><button type="button" className="text-button" onClick={onSignOut}>Voltar ao login</button></form></main>
+  return <main className="password-change-page"><form className="login-card" onSubmit={submit}><img className="password-logo" src={publicAsset('alert-logo.png')} alt="Alert" /><p className="eyebrow">Primeiro acesso</p><h2>Crie sua nova senha</h2><p className="form-intro">A senha provisória só pode ser usada uma vez.</p><label>Nova senha<input type="password" value={password} onChange={event => setPassword(event.target.value)} required /></label><label>Confirmar nova senha<input type="password" value={confirmation} onChange={event => setConfirmation(event.target.value)} required /></label>{error && <div className="login-error"><AlertTriangle size={17} />{error}</div>}<button className="primary-button full">Salvar nova senha <ChevronRight size={18} /></button><button type="button" className="text-button" onClick={onSignOut}>Voltar ao login</button></form></main>
 }
 
 function Dashboard({ data, activities, onAction, onNavigate, onKm, onRequest }: { data: AppData; activities: { title: string; detail: string; tone: string }[]; onAction: (action: ActionName) => void; onNavigate: (page: Page) => void; onKm: () => void; onRequest: () => void }) {

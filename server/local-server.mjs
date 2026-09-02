@@ -1,8 +1,10 @@
 import { createServer } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { DatabaseSync } from 'node:sqlite'
 
 const serverDirectory = dirname(fileURLToPath(import.meta.url))
 const projectDirectory = resolve(serverDirectory, '..')
@@ -13,8 +15,35 @@ loadEnvironment(join(projectDirectory, '.env.server'))
 const host = process.env.GIO_HOST?.trim() || '0.0.0.0'
 const port = Number(process.env.GIO_PORT || 4173)
 const movideskBaseUrl = (process.env.MOVIEDESK_API_BASE || 'https://api.movidesk.com/public/v1').replace(/\/$/, '')
-const requestLimitBytes = 15 * 1024 * 1024
+const requestLimitBytes = 120 * 1024 * 1024
 const movideskRequests = []
+const sessions = new Map()
+const dataDirectory = resolve(process.env.GIO_DATA_DIR?.trim() || join(projectDirectory, '.gio-data'))
+const documentsDirectory = join(dataDirectory, 'documents')
+mkdirSync(documentsDirectory, { recursive: true })
+const database = new DatabaseSync(join(dataDirectory, 'gio.db'))
+database.exec(`
+  PRAGMA journal_mode = WAL;
+  PRAGMA foreign_keys = ON;
+  CREATE TABLE IF NOT EXISTS app_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    data TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS documents (
+    storage_key TEXT PRIMARY KEY,
+    record_type TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    file_name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+`)
+const allowedOrigins = new Set([
+  `http://localhost:${port}`,
+  `http://127.0.0.1:${port}`,
+  ...String(process.env.GIO_ALLOWED_ORIGINS || '').split(',').map(value => value.trim()).filter(Boolean),
+])
 
 const mimeTypes = new Map([
   ['.html', 'text/html; charset=utf-8'], ['.js', 'text/javascript; charset=utf-8'], ['.css', 'text/css; charset=utf-8'],
@@ -28,11 +57,24 @@ if (!existsSync(join(distDirectory, 'index.html'))) {
 }
 
 const server = createServer(async (request, response) => {
-  setSecurityHeaders(response)
+  setSecurityHeaders(request, response)
   const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`)
 
   try {
+    if (request.method === 'OPTIONS') return handleOptions(request, response)
+    if (!originAllowed(request)) return sendJson(response, 403, { error: 'Origem não autorizada para acessar o servidor GIO.' })
     if (url.pathname === '/api/health' && request.method === 'GET') return sendHealth(response)
+    if (url.pathname === '/api/setup/state' && request.method === 'POST') return await setupCentralState(request, response)
+    if (url.pathname === '/api/auth/login' && request.method === 'POST') return await login(request, response)
+
+    const session = authenticateRequest(request)
+    if (url.pathname.startsWith('/api/') && !session) return sendJson(response, 401, { error: 'Sessão inválida ou expirada. Entre novamente na GIO.' })
+    if (url.pathname === '/api/state' && request.method === 'GET') return getCentralState(response)
+    if (url.pathname === '/api/state' && request.method === 'PUT') return await updateCentralState(request, response)
+    if (url.pathname.startsWith('/api/documents/') && request.method === 'GET') {
+      const storageKey = decodeURIComponent(url.pathname.slice('/api/documents/'.length))
+      return await downloadDocument(storageKey, response)
+    }
     if (url.pathname === '/api/movidesk/rma' && request.method === 'POST') return await createRmaTicket(request, response)
     if (url.pathname === '/api/movidesk/rma/photo' && request.method === 'POST') return await uploadRmaPhoto(request, response)
     if (url.pathname === '/api/movidesk/tickets/photo' && request.method === 'POST') return await uploadRmaPhoto(request, response)
@@ -55,8 +97,178 @@ server.listen(port, host, () => {
   console.log(`Movidesk: ${movideskConfiguration().configured ? 'configurado' : 'aguardando token e usuário de integração'}`)
 })
 
-process.on('SIGINT', () => server.close(() => process.exit(0)))
-process.on('SIGTERM', () => server.close(() => process.exit(0)))
+const shutdown = () => server.close(() => {
+  database.close()
+  process.exit(0)
+})
+process.on('SIGINT', shutdown)
+process.on('SIGTERM', shutdown)
+
+function originAllowed(request) {
+  const origin = String(request.headers.origin || '').trim()
+  return !origin || allowedOrigins.has(origin)
+}
+
+function handleOptions(request, response) {
+  if (!originAllowed(request)) return sendJson(response, 403, { error: 'Origem não autorizada.' })
+  response.writeHead(204)
+  response.end()
+}
+
+function isLoopbackRequest(request) {
+  const address = String(request.socket.remoteAddress || '').replace(/^::ffff:/, '')
+  return address === '127.0.0.1' || address === '::1'
+}
+
+function stateRow() {
+  return database.prepare('SELECT data, revision, updated_at FROM app_state WHERE id = 1').get()
+}
+
+function stateForClient() {
+  const row = stateRow()
+  if (!row) return null
+  return { data: JSON.parse(String(row.data)), revision: Number(row.revision), updatedAt: String(row.updated_at) }
+}
+
+async function setupCentralState(request, response) {
+  if (!isLoopbackRequest(request)) return sendJson(response, 403, { error: 'A configuração inicial só pode ser feita nesta máquina.' })
+  if (stateRow()) return sendJson(response, 409, { error: 'O armazenamento central já foi configurado.' })
+  const body = await readJsonBody(request)
+  const data = body?.data
+  if (!validAppState(data)) return sendJson(response, 400, { error: 'Os dados locais não são válidos para iniciar o servidor.' })
+  const stored = storeCentralState(data, null)
+  const session = createSession(String(data.account.id || ''))
+  return sendJson(response, 201, { configured: true, revision: stored.revision, updatedAt: stored.updatedAt, ...session })
+}
+
+async function login(request, response) {
+  const body = await readJsonBody(request)
+  const email = String(body?.email || '').trim().toLowerCase()
+  const password = String(body?.password || '')
+  const state = stateForClient()
+  if (!state) return sendJson(response, 503, { error: 'O armazenamento central ainda não foi configurado nesta máquina.' })
+  const account = state.data?.account
+  const expectedEmail = String(account?.email || '').trim().toLowerCase()
+  const expectedHash = String(account?.passwordHash || '')
+  const informedHash = hashPassword(password)
+  if (!email || !password || email !== expectedEmail || !safeEqual(informedHash, expectedHash)) {
+    return sendJson(response, 401, { error: 'E-mail ou senha inválidos.' })
+  }
+  const session = createSession(String(account.id || ''))
+  return sendJson(response, 200, { ...session, data: state.data, revision: state.revision })
+}
+
+function createSession(accountId) {
+  clearExpiredSessions()
+  const token = randomBytes(32).toString('base64url')
+  const expiresAt = Date.now() + 12 * 60 * 60 * 1000
+  sessions.set(token, { accountId, expiresAt })
+  return { token, expiresAt: new Date(expiresAt).toISOString() }
+}
+
+function authenticateRequest(request) {
+  clearExpiredSessions()
+  const match = String(request.headers.authorization || '').match(/^Bearer\s+(.+)$/i)
+  if (!match) return null
+  return sessions.get(match[1]) || null
+}
+
+function clearExpiredSessions() {
+  const now = Date.now()
+  for (const [token, session] of sessions) if (session.expiresAt <= now) sessions.delete(token)
+}
+
+function hashPassword(password) {
+  return createHash('sha256').update(`gio-alert-v1:${password}`, 'utf8').digest('hex')
+}
+
+function safeEqual(first, second) {
+  const firstBuffer = Buffer.from(String(first))
+  const secondBuffer = Buffer.from(String(second))
+  return firstBuffer.length === secondBuffer.length && timingSafeEqual(firstBuffer, secondBuffer)
+}
+
+function validAppState(data) {
+  return Boolean(data && typeof data === 'object' && data.account?.id && data.account?.email && data.account?.passwordHash && Array.isArray(data.people))
+}
+
+function getCentralState(response) {
+  const state = stateForClient()
+  if (!state) return sendJson(response, 404, { error: 'O armazenamento central ainda não foi configurado.' })
+  return sendJson(response, 200, state)
+}
+
+async function updateCentralState(request, response) {
+  const body = await readJsonBody(request)
+  if (!validAppState(body?.data)) return sendJson(response, 400, { error: 'Os dados enviados não são válidos.' })
+  const expectedRevision = Number(body?.revision)
+  const current = stateRow()
+  if (!current) return sendJson(response, 404, { error: 'O armazenamento central ainda não foi configurado.' })
+  if (!Number.isInteger(expectedRevision) || expectedRevision !== Number(current.revision)) {
+    return sendJson(response, 409, { error: 'Os dados foram atualizados por outro dispositivo. Recarregue a GIO antes de tentar novamente.', revision: Number(current.revision) })
+  }
+  const stored = storeCentralState(body.data, expectedRevision)
+  return sendJson(response, 200, { revision: stored.revision, updatedAt: stored.updatedAt })
+}
+
+function storeCentralState(data, expectedRevision) {
+  const sanitized = extractPdfDocuments(data)
+  const current = stateRow()
+  const revision = current ? Number(current.revision) + 1 : 1
+  if (current && expectedRevision !== null && Number(current.revision) !== expectedRevision) throw new Error('Conflito de revisão ao salvar o banco local.')
+  const updatedAt = new Date().toISOString()
+  database.prepare(`INSERT INTO app_state (id, data, revision, updated_at) VALUES (1, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET data = excluded.data, revision = excluded.revision, updated_at = excluded.updated_at`).run(JSON.stringify(sanitized), revision, updatedAt)
+  return { revision, updatedAt }
+}
+
+function extractPdfDocuments(data) {
+  const clone = structuredClone(data)
+  const groups = [
+    { type: 'auditoria', records: Array.isArray(clone.audits) ? clone.audits : [] },
+    { type: 'troca-veiculo', records: Array.isArray(clone.kmRecords) ? clone.kmRecords.filter(record => record.changeDriver) : [] },
+  ]
+  const insert = database.prepare(`INSERT INTO documents (storage_key, record_type, record_id, file_name, created_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(storage_key) DO UPDATE SET file_name = excluded.file_name, created_at = excluded.created_at`)
+  for (const group of groups) {
+    for (const record of group.records) {
+      delete record.pdfUrl
+      if (!String(record.pdfData || '').startsWith('data:application/pdf')) continue
+      const parsed = parsePdfData(record.pdfData)
+      const storageKey = String(record.pdfStorageKey || `${group.type}-${record.id}`).replace(/[^a-zA-Z0-9_-]/g, '')
+      if (!storageKey) continue
+      writeFileSync(join(documentsDirectory, `${storageKey}.pdf`), parsed)
+      record.pdfStorageKey = storageKey
+      delete record.pdfData
+      insert.run(storageKey, group.type, String(record.id), String(record.pdfFileName || `${storageKey}.pdf`), String(record.completedAt || record.createdAt || new Date().toISOString()))
+    }
+  }
+  return clone
+}
+
+function parsePdfData(value) {
+  const match = String(value || '').match(/^data:application\/pdf[^,]*;base64,([a-zA-Z0-9+/=\r\n]+)$/)
+  if (!match) throw new Error('O PDF gerado não está em um formato válido.')
+  const buffer = Buffer.from(match[1].replace(/\s/g, ''), 'base64')
+  if (!buffer.length || buffer.length > 80 * 1024 * 1024) throw new Error('O PDF está vazio ou ultrapassa o limite de 80 MB.')
+  return buffer
+}
+
+async function downloadDocument(storageKey, response) {
+  if (!/^[a-zA-Z0-9_-]+$/.test(storageKey)) return sendJson(response, 400, { error: 'Identificação de documento inválida.' })
+  const metadata = database.prepare('SELECT file_name FROM documents WHERE storage_key = ?').get(storageKey)
+  const filePath = join(documentsDirectory, `${storageKey}.pdf`)
+  if (!metadata || !existsSync(filePath)) return sendJson(response, 404, { error: 'Documento não encontrado no servidor.' })
+  const content = await readFile(filePath)
+  const safeName = String(metadata.file_name || `${storageKey}.pdf`).replace(/[\r\n"]/g, '')
+  response.writeHead(200, {
+    'Content-Type': 'application/pdf',
+    'Content-Length': content.length,
+    'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(safeName)}`,
+    'Cache-Control': 'private, no-store',
+  })
+  response.end(content)
+}
 
 async function createRmaTicket(request, response) {
   const configuration = movideskConfiguration()
@@ -66,8 +278,8 @@ async function createRmaTicket(request, response) {
   try {
     body = await readJsonBody(request)
   } catch (error) {
-    const tooLarge = String(error?.message || '').includes('15 MB')
-    return sendJson(response, tooLarge ? 413 : 400, { error: tooLarge ? 'A imagem ultrapassa o limite de 15 MB.' : 'O conteúdo enviado não é válido.' })
+    const tooLarge = String(error?.message || '').includes('120 MB')
+    return sendJson(response, tooLarge ? 413 : 400, { error: tooLarge ? 'O conteúdo enviado ultrapassa o limite de 120 MB.' : 'O conteúdo enviado não é válido.' })
   }
   const required = ['localCode', 'title', 'client', 'equipment', 'withdrawalDate', 'technician', 'details']
   const missing = required.filter(field => !String(body[field] ?? '').trim())
@@ -165,8 +377,8 @@ async function uploadRmaPhoto(request, response) {
   try {
     body = await readJsonBody(request)
   } catch (error) {
-    const tooLarge = String(error?.message || '').includes('15 MB')
-    return sendJson(response, tooLarge ? 413 : 400, { error: tooLarge ? 'A imagem ultrapassa o limite de 15 MB.' : 'O conteúdo enviado não é válido.' })
+    const tooLarge = String(error?.message || '').includes('120 MB')
+    return sendJson(response, tooLarge ? 413 : 400, { error: tooLarge ? 'O conteúdo enviado ultrapassa o limite de 120 MB.' : 'O conteúdo enviado não é válido.' })
   }
   const internalId = String(body.internalId ?? '').trim()
   const actionId = String(body.actionId ?? '').trim()
@@ -190,8 +402,8 @@ async function createSurveyTicket(request, response) {
   try {
     body = await readJsonBody(request)
   } catch (error) {
-    const tooLarge = String(error?.message || '').includes('15 MB')
-    return sendJson(response, tooLarge ? 413 : 400, { error: tooLarge ? 'A imagem ultrapassa o limite de 15 MB.' : 'O conteúdo enviado não é válido.' })
+    const tooLarge = String(error?.message || '').includes('120 MB')
+    return sendJson(response, tooLarge ? 413 : 400, { error: tooLarge ? 'O conteúdo enviado ultrapassa o limite de 120 MB.' : 'O conteúdo enviado não é válido.' })
   }
   const required = ['localCode', 'client', 'startDate', 'endDate', 'area', 'details', 'requestedBy']
   const missing = required.filter(field => !String(body[field] ?? '').trim())
@@ -314,9 +526,11 @@ function movideskConfiguration() {
 
 function sendHealth(response) {
   const movidesk = movideskConfiguration()
+  const documents = database.prepare('SELECT COUNT(*) AS total FROM documents').get()
   return sendJson(response, 200, {
     application: 'GIO', status: 'online', serverTime: new Date().toISOString(),
     movideskConfigured: movidesk.configured, missingConfiguration: movidesk.missing,
+    centralStorageConfigured: Boolean(stateRow()), storageType: 'SQLite', storedDocuments: Number(documents?.total || 0),
   })
 }
 
@@ -465,7 +679,7 @@ function readJsonBody(request) {
       chunks.push(chunk)
     })
     request.on('end', () => {
-      if (tooLarge) return rejectBody(new Error('Requisição maior que 15 MB.'))
+      if (tooLarge) return rejectBody(new Error('Requisição maior que 120 MB.'))
       try { resolveBody(JSON.parse(Buffer.concat(chunks).toString('utf8'))) } catch { rejectBody(new Error('JSON inválido.')) }
     })
     request.on('error', rejectBody)
@@ -477,7 +691,15 @@ function sendJson(response, status, body) {
   response.end(JSON.stringify(body))
 }
 
-function setSecurityHeaders(response) {
+function setSecurityHeaders(request, response) {
+  const origin = String(request.headers.origin || '').trim()
+  if (origin && allowedOrigins.has(origin)) {
+    response.setHeader('Access-Control-Allow-Origin', origin)
+    response.setHeader('Vary', 'Origin')
+  }
+  response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS')
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  response.setHeader('Access-Control-Max-Age', '86400')
   response.setHeader('X-Content-Type-Options', 'nosniff')
   response.setHeader('X-Frame-Options', 'SAMEORIGIN')
   response.setHeader('Referrer-Policy', 'same-origin')

@@ -12,7 +12,10 @@ vite.config.d.ts
 !.env.example
 !.env.server.example
 .gio-server.pid
+.gio-tunnel.pid
 .logs/
+.gio-data/
+.tools/
 
 # Sistema operacional e editor
 .DS_Store

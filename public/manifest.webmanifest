@@ -1,7 +1,8 @@
 {
   "name": "GIO — Gestão Integrada de Operações",
   "short_name": "GIO",
-  "start_url": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f2f5f2",
   "theme_color": "#183c2c",

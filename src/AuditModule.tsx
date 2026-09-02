@@ -2,6 +2,7 @@ import { ChangeEvent, PointerEvent as ReactPointerEvent, useRef, useState } from
 import { AlertTriangle, CalendarDays, Camera, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, FileDown, ListChecks, PenLine, ShieldCheck, UserCheck, Wrench, X } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import type { AppData, AuditCategory, AuditItemResult, AuditRecord, InventoryItem } from './store'
+import { publicAsset } from './paths'
 
 const commonQuestions = [
   'O item está funcionando corretamente?',
@@ -203,7 +204,7 @@ function SignaturePad({ label, onChange }: { label: string; onChange: (signature
 async function createAuditPdf(record: AuditRecord, responsibleSignature: string, auditedSignature?: string) {
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
   let logo = ''
-  try { logo = await fetch('/alert-logo.png').then(response => response.blob()).then(blobToDataUrl) } catch { /* O título mantém o documento identificável. */ }
+  try { logo = await fetch(publicAsset('alert-logo.png')).then(response => response.blob()).then(blobToDataUrl) } catch { /* O título mantém o documento identificável. */ }
   const header = (title: string, subtitle: string) => {
     if (logo) pdf.addImage(logo, 'PNG', 15, 10, 44, 22)
     pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); pdf.setTextColor(48, 51, 54); pdf.text(title, 15, 42)

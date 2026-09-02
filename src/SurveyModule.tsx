@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CalendarDays, CheckCircle2, FileText, ImagePlus, RotateCcw, Send } from 'lucide-react'
 import type { AppData, SurveyRequest } from './store'
+import { serverApiFetch } from './serverApi'
 
 const surveyEndpoint = String(import.meta.env.VITE_MOVIEDESK_SURVEY_ENDPOINT ?? '/api/movidesk/survey').trim()
 const serverHealthEndpoint = String(import.meta.env.VITE_GIO_HEALTH_ENDPOINT ?? '/api/health').trim()
@@ -77,7 +78,7 @@ function surveyPayload(request: SurveyRequest, photo = request.photo) {
 }
 
 async function sendSurveyToMovidesk(request: SurveyRequest) {
-  const response = await fetch(surveyEndpoint, {
+  const response = await serverApiFetch(surveyEndpoint, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(surveyPayload(request)),
   })
   const result = await response.json().catch(() => ({})) as MovideskSurveyResult & { error?: string }
@@ -126,7 +127,7 @@ export function surveyNeedsStatusSync(request: SurveyRequest, now = new Date()) 
 }
 
 export async function fetchSurveyStatus(request: SurveyRequest) {
-  const response = await fetch(`/api/movidesk/tickets/${encodeURIComponent(request.movideskTicketId)}`, { headers: { Accept: 'application/json' } })
+  const response = await serverApiFetch(`/api/movidesk/tickets/${encodeURIComponent(request.movideskTicketId)}`, { headers: { Accept: 'application/json' } })
   const result = await response.json().catch(() => ({})) as { status?: string; resolved?: boolean; error?: string }
   if (!response.ok) throw new Error(result.error || `Falha ${response.status}`)
   return {
@@ -151,7 +152,7 @@ export function SurveyPage({ data, onChange }: { data: AppData; onChange: (data:
 
   useEffect(() => {
     let active = true
-    fetch(serverHealthEndpoint, { headers: { Accept: 'application/json' } })
+    serverApiFetch(serverHealthEndpoint, { headers: { Accept: 'application/json' } }, false)
       .then(async response => {
         if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) throw new Error('Servidor indisponível')
         return response.json() as Promise<{ movideskConfigured?: boolean }>
@@ -215,7 +216,7 @@ export function SurveyPage({ data, onChange }: { data: AppData; onChange: (data:
       let message: string
       if (request.movideskTicketId && request.movideskInternalId && request.movideskActionId && request.photo) {
         const optimizedPhoto = await optimizeImage(request.photo)
-        const response = await fetch('/api/movidesk/tickets/photo', {
+        const response = await serverApiFetch('/api/movidesk/tickets/photo', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ internalId: request.movideskInternalId, actionId: request.movideskActionId, localCode: request.localCode, photo: optimizedPhoto }),
         })

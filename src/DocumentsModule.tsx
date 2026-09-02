@@ -1,5 +1,6 @@
 import { CalendarDays, Download, FileArchive, FileCheck2, FolderOpen, UserRound } from 'lucide-react'
 import type { AppData } from './store'
+import { downloadServerDocument } from './serverApi'
 
 export type DocumentSection = 'audits' | 'vehicle-change'
 
@@ -12,6 +13,7 @@ type DocumentRow = {
   details: string
   fileName: string
   pdfData?: string
+  pdfStorageKey?: string
 }
 
 function formatDate(value: string) {
@@ -19,7 +21,8 @@ function formatDate(value: string) {
   return Number.isNaN(date.getTime()) ? 'Não registrado' : date.toLocaleString('pt-BR')
 }
 
-function documentSize(pdfData?: string) {
+function documentSize(pdfData?: string, pdfStorageKey?: string) {
+  if (pdfStorageKey) return 'Armazenado no servidor'
   if (!pdfData) return 'Arquivo anterior não armazenado'
   const encoded = pdfData.split(',')[1] || ''
   const bytes = Math.max(0, Math.floor(encoded.length * 0.75))
@@ -27,7 +30,8 @@ function documentSize(pdfData?: string) {
   return `${Math.max(1, Math.round(bytes / 1024)).toLocaleString('pt-BR')} KB`
 }
 
-function downloadPdf(row: DocumentRow) {
+async function downloadPdf(row: DocumentRow) {
+  if (row.pdfStorageKey) return downloadServerDocument(row.pdfStorageKey, row.fileName)
   if (!row.pdfData) return
   const link = document.createElement('a')
   link.href = row.pdfData
@@ -51,6 +55,7 @@ export function DocumentsPage({ data, section }: { data: AppData; section: Docum
         details: `${approved} de ${audit.results.length} equipamentos aprovados · Próxima: ${new Date(`${audit.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR')}`,
         fileName: audit.pdfFileName,
         pdfData: audit.pdfData,
+        pdfStorageKey: audit.pdfStorageKey,
       }
     })
     : data.kmRecords.filter(record => record.changeDriver).map(record => ({
@@ -62,9 +67,10 @@ export function DocumentsPage({ data, section }: { data: AppData; section: Docum
       details: `${record.destination}${record.hasDamage ? ' · Com avarias' : ' · Sem avarias'}`,
       fileName: record.pdfFileName || `Relatório de troca de condutor - ${record.vehicle}.pdf`,
       pdfData: record.pdfData,
+      pdfStorageKey: record.pdfStorageKey,
     }))
   const orderedRows = [...rows].sort((first, second) => new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime())
-  const available = orderedRows.filter(row => row.pdfData).length
+  const available = orderedRows.filter(row => row.pdfData || row.pdfStorageKey).length
 
   return <>
     <section className="page-intro"><div><p className="eyebrow">Central de arquivos</p><h2>{isAudits ? 'Documentos de auditoria' : 'Documentos de troca de veículo'}</h2><p>{isAudits ? 'Consulte os relatórios assinados gerados ao final das auditorias.' : 'Consulte os relatórios gerados quando houver troca de condutor do veículo.'}</p></div></section>
@@ -80,8 +86,8 @@ export function DocumentsPage({ data, section }: { data: AppData; section: Docum
           <td><span className="document-date"><CalendarDays size={14} />{formatDate(row.createdAt)}</span></td>
           <td><span className="document-person"><UserRound size={14} />{row.person}</span></td>
           <td>{row.type}</td><td>{row.identification}</td><td>{row.details}</td>
-          <td><span className="document-file"><FileArchive size={15} /><span><b>{row.fileName}</b><small>{documentSize(row.pdfData)}</small></span></span></td>
-          <td><button className="secondary-button compact" disabled={!row.pdfData} onClick={() => downloadPdf(row)}><Download size={15} />{row.pdfData ? 'Baixar PDF' : 'Indisponível'}</button></td>
+          <td><span className="document-file"><FileArchive size={15} /><span><b>{row.fileName}</b><small>{documentSize(row.pdfData, row.pdfStorageKey)}</small></span></span></td>
+          <td><button className="secondary-button compact" disabled={!row.pdfData && !row.pdfStorageKey} onClick={() => void downloadPdf(row)}><Download size={15} />{row.pdfData || row.pdfStorageKey ? 'Baixar PDF' : 'Indisponível'}</button></td>
         </tr>) : <tr><td colSpan={7} className="table-empty">Nenhum PDF desta categoria foi gerado até o momento.</td></tr>}
       </tbody></table></div>
     </section>
