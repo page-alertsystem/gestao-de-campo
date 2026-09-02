@@ -69,8 +69,8 @@ const server = createServer(async (request, response) => {
 
     const session = authenticateRequest(request)
     if (url.pathname.startsWith('/api/') && !session) return sendJson(response, 401, { error: 'Sessão inválida ou expirada. Entre novamente na GIO.' })
-    if (url.pathname === '/api/state' && request.method === 'GET') return getCentralState(response)
-    if (url.pathname === '/api/state' && request.method === 'PUT') return await updateCentralState(request, response)
+    if (url.pathname === '/api/state' && request.method === 'GET') return getCentralState(response, session)
+    if (url.pathname === '/api/state' && request.method === 'PUT') return await updateCentralState(request, response, session)
     if (url.pathname.startsWith('/api/documents/') && request.method === 'GET') {
       const storageKey = decodeURIComponent(url.pathname.slice('/api/documents/'.length))
       return await downloadDocument(storageKey, response)
@@ -147,15 +147,16 @@ async function login(request, response) {
   const password = String(body?.password || '')
   const state = stateForClient()
   if (!state) return sendJson(response, 503, { error: 'O armazenamento central ainda não foi configurado nesta máquina.' })
-  const account = state.data?.account
-  const expectedEmail = String(account?.email || '').trim().toLowerCase()
-  const expectedHash = String(account?.passwordHash || '')
+  const legacyAccount = state.data?.account
+  const person = (Array.isArray(state.data?.people) ? state.data.people : []).find(item => item?.active !== false && item?.canLogin === true && String(item?.email || '').trim().toLowerCase() === email)
+  const isLegacyAccount = person && (String(person.id) === String(legacyAccount?.id) || String(person.email || '').trim().toLowerCase() === String(legacyAccount?.email || '').trim().toLowerCase())
+  const expectedHash = String(person?.passwordHash || (isLegacyAccount ? legacyAccount?.passwordHash : '') || '')
   const informedHash = hashPassword(password)
-  if (!email || !password || email !== expectedEmail || !safeEqual(informedHash, expectedHash)) {
+  if (!email || !password || !person || !expectedHash || !safeEqual(informedHash, expectedHash)) {
     return sendJson(response, 401, { error: 'E-mail ou senha inválidos.' })
   }
-  const session = createSession(String(account.id || ''))
-  return sendJson(response, 200, { ...session, data: state.data, revision: state.revision })
+  const session = createSession(String(person.id || ''))
+  return sendJson(response, 200, { ...session, data: stateForAccount(state.data, person.id), revision: state.revision })
 }
 
 function createSession(accountId) {
@@ -170,7 +171,15 @@ function authenticateRequest(request) {
   clearExpiredSessions()
   const match = String(request.headers.authorization || '').match(/^Bearer\s+(.+)$/i)
   if (!match) return null
-  return sessions.get(match[1]) || null
+  const session = sessions.get(match[1]) || null
+  if (!session) return null
+  const state = stateForClient()
+  const person = (Array.isArray(state?.data?.people) ? state.data.people : []).find(item => String(item?.id) === String(session.accountId))
+  if (!person || person.active === false || person.canLogin !== true) {
+    sessions.delete(match[1])
+    return null
+  }
+  return session
 }
 
 function clearExpiredSessions() {
@@ -192,13 +201,13 @@ function validAppState(data) {
   return Boolean(data && typeof data === 'object' && data.account?.id && data.account?.email && data.account?.passwordHash && Array.isArray(data.people))
 }
 
-function getCentralState(response) {
+function getCentralState(response, session) {
   const state = stateForClient()
   if (!state) return sendJson(response, 404, { error: 'O armazenamento central ainda não foi configurado.' })
-  return sendJson(response, 200, state)
+  return sendJson(response, 200, { ...state, data: stateForAccount(state.data, session.accountId) })
 }
 
-async function updateCentralState(request, response) {
+async function updateCentralState(request, response, session) {
   const body = await readJsonBody(request)
   if (!validAppState(body?.data)) return sendJson(response, 400, { error: 'Os dados enviados não são válidos.' })
   const expectedRevision = Number(body?.revision)
@@ -207,8 +216,71 @@ async function updateCentralState(request, response) {
   if (!Number.isInteger(expectedRevision) || expectedRevision !== Number(current.revision)) {
     return sendJson(response, 409, { error: 'Os dados foram atualizados por outro dispositivo. Recarregue a GIO antes de tentar novamente.', revision: Number(current.revision) })
   }
-  const stored = storeCentralState(body.data, expectedRevision)
+  const currentData = JSON.parse(String(current.data))
+  const stored = storeCentralState(mergeStateForAccount(body.data, currentData, session.accountId), expectedRevision)
   return sendJson(response, 200, { revision: stored.revision, updatedAt: stored.updatedAt })
+}
+
+function stateForAccount(data, accountId) {
+  const clone = structuredClone(data)
+  const person = (Array.isArray(clone.people) ? clone.people : []).find(item => String(item?.id) === String(accountId))
+  if (!person) return clone
+  const legacyAccount = clone.account
+  const isLegacyAccount = String(person.id) === String(legacyAccount?.id)
+  clone.account = {
+    id: String(person.id),
+    name: String(person.name || ''),
+    email: String(person.email || ''),
+    passwordHash: String(person.passwordHash || (isLegacyAccount ? legacyAccount?.passwordHash : '') || ''),
+    mustChangePassword: Boolean(person.mustChangePassword ?? (isLegacyAccount ? legacyAccount?.mustChangePassword : false)),
+  }
+  clone.people = clone.people.map(item => {
+    if (String(item?.id) === String(accountId)) return item
+    const safe = { ...item }
+    delete safe.passwordHash
+    return safe
+  })
+  return clone
+}
+
+function mergeStateForAccount(incoming, current, accountId) {
+  const currentPeople = Array.isArray(current.people) ? current.people : []
+  const incomingPeople = Array.isArray(incoming.people) ? incoming.people : []
+  const signedIn = currentPeople.find(item => String(item?.id) === String(accountId))
+  const administrator = Array.isArray(signedIn?.groups) && signedIn.groups.includes('Administrador')
+
+  let people
+  if (administrator) {
+    people = incomingPeople.map(person => {
+      const previous = currentPeople.find(item => String(item?.id) === String(person?.id))
+      return {
+        ...person,
+        passwordHash: person?.passwordHash || previous?.passwordHash,
+        mustChangePassword: person?.mustChangePassword ?? previous?.mustChangePassword ?? false,
+      }
+    })
+  } else {
+    people = currentPeople.map(person => {
+      if (String(person?.id) !== String(accountId)) return person
+      const informed = incomingPeople.find(item => String(item?.id) === String(accountId))
+      return {
+        ...person,
+        passwordHash: informed?.passwordHash || incoming.account?.passwordHash || person.passwordHash,
+        mustChangePassword: informed?.mustChangePassword ?? incoming.account?.mustChangePassword ?? person.mustChangePassword ?? false,
+      }
+    })
+    incomingPeople.filter(person => !currentPeople.some(item => String(item?.id) === String(person?.id)) && person?.canLogin !== true).forEach(person => people.push(person))
+  }
+
+  const primaryPerson = people.find(person => String(person?.id) === String(current.account?.id))
+  const account = primaryPerson ? {
+    ...current.account,
+    name: String(primaryPerson.name || current.account?.name || ''),
+    email: String(primaryPerson.email || current.account?.email || ''),
+    passwordHash: String(primaryPerson.passwordHash || current.account?.passwordHash || ''),
+    mustChangePassword: Boolean(primaryPerson.mustChangePassword ?? current.account?.mustChangePassword),
+  } : current.account
+  return { ...incoming, account, people }
 }
 
 function storeCentralState(data, expectedRevision) {

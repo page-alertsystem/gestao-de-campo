@@ -1,10 +1,9 @@
 import { FormEvent, type ReactNode, useState } from 'react'
-import { Boxes, CarFront, MapPin, Plus, Search, Users } from 'lucide-react'
-import { formatQuantity, parseQuantity, type AppData, type Client, type InventoryItem, type Person, type Vehicle } from './store'
+import { Boxes, CarFront, KeyRound, MapPin, Pencil, Plus, Search, Trash2, Users, X } from 'lucide-react'
+import { normalizeProfiles, profileNames } from './access'
+import { accountFromPerson, formatQuantity, hashPassword, parseQuantity, type AppData, type Client, type InventoryItem, type Person, type Vehicle } from './store'
 
 type Section = 'pessoas' | 'clientes' | 'veiculos' | 'itens'
-const groups = ['Técnico de Campo', 'RH', 'Financeiro', 'Logística', 'Estoque', 'Service Desk', 'Implantação', 'Auditor', 'Segurança do Trabalho']
-
 export function AdminCatalogs({ data, onChange }: { data: AppData; onChange: (data: AppData, message: string) => void }) {
   const [section, setSection] = useState<Section>('pessoas')
   const [query, setQuery] = useState('')
@@ -26,15 +25,87 @@ export function AdminCatalogs({ data, onChange }: { data: AppData; onChange: (da
 }
 
 function PeopleCatalog({ data, query, onChange }: CatalogProps) {
-  const [form, setForm] = useState({ name: '', email: '', group: 'Técnico de Campo', canLogin: false })
+  const emptyForm = { name: '', email: '', profiles: ['Técnico'], canLogin: true, active: true, provisionalPassword: '' }
+  const [form, setForm] = useState(emptyForm)
+  const [editingId, setEditingId] = useState('')
+  const [error, setError] = useState('')
   const visible = data.people.filter(item => `${item.name} ${item.email} ${item.groups.join(' ')}`.toLowerCase().includes(query.toLowerCase()))
-  const submit = (event: FormEvent) => {
-    event.preventDefault()
-    const person: Person = { id: crypto.randomUUID(), name: form.name.trim(), email: form.email.trim(), groups: [form.group], active: true, canLogin: form.canLogin }
-    onChange({ ...data, people: [...data.people, person] }, 'Pessoa cadastrada com sucesso.')
-    setForm({ name: '', email: '', group: 'Técnico de Campo', canLogin: false })
+  const editing = data.people.find(person => person.id === editingId)
+  const editingSelf = editing?.id === data.account.id
+
+  const reset = () => {
+    setForm(emptyForm)
+    setEditingId('')
+    setError('')
   }
-  return <CatalogLayout title="Cadastrar pessoa" form={<form className="catalog-form" onSubmit={submit}><label>Nome<input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} required /></label><label>E-mail {form.canLogin ? '' : '(opcional)'}<input type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} required={form.canLogin} /></label><label>Grupo inicial<select value={form.group} onChange={event => setForm({ ...form, group: event.target.value })}>{groups.map(group => <option key={group}>{group}</option>)}</select></label><label className="inline-check"><input type="checkbox" checked={form.canLogin} onChange={event => setForm({ ...form, canLogin: event.target.checked })} /> Poderá acessar a plataforma</label><button className="primary-button"><Plus size={17} /> Adicionar</button></form>} table={<Table headers={['Pessoa', 'E-mail', 'Grupos', 'Acesso', 'Status']} rows={visible.map(item => [item.name, item.email || 'Sem acesso', item.groups.join(', '), item.canLogin ? 'Liberado' : 'Sem login', item.active ? 'Ativo' : 'Inativo'])} />} />
+
+  const startEdit = (person: Person) => {
+    setEditingId(person.id)
+    setForm({ name: person.name, email: person.email, profiles: normalizeProfiles(person.groups), canLogin: person.canLogin, active: person.active, provisionalPassword: '' })
+    setError('')
+  }
+
+  const toggleProfile = (profile: string) => {
+    if (profile === 'Técnico') return
+    setForm(current => {
+      if (profile === 'Administrador') return { ...current, profiles: current.profiles.includes('Administrador') ? ['Técnico'] : ['Administrador'] }
+      const withoutAdmin = current.profiles.filter(item => item !== 'Administrador')
+      const profiles = withoutAdmin.includes(profile) ? withoutAdmin.filter(item => item !== profile) : [...withoutAdmin, profile]
+      return { ...current, profiles: normalizeProfiles(profiles) }
+    })
+  }
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    setError('')
+    const email = form.email.trim().toLowerCase()
+    if (form.canLogin && !email) return setError('Informe o e-mail para liberar o acesso à plataforma.')
+    if (email && data.people.some(person => person.id !== editingId && person.email.trim().toLowerCase() === email)) return setError('Já existe uma pessoa cadastrada com este e-mail.')
+    const needsFirstPassword = form.canLogin && (!editing || !editing.canLogin)
+    if (needsFirstPassword && !form.provisionalPassword) return setError('Crie uma senha provisória para o primeiro acesso.')
+    if (form.provisionalPassword && (form.provisionalPassword.length < 8 || !/[A-Za-z]/.test(form.provisionalPassword) || !/\d/.test(form.provisionalPassword))) return setError('A senha provisória precisa ter pelo menos 8 caracteres, com letra e número.')
+
+    const passwordHash = form.provisionalPassword ? await hashPassword(form.provisionalPassword) : editing?.passwordHash
+    const person: Person = {
+      id: editing?.id ?? crypto.randomUUID(),
+      name: form.name.trim(),
+      email,
+      groups: editingSelf && normalizeProfiles(editing?.groups).includes('Administrador') ? ['Administrador'] : normalizeProfiles(form.profiles),
+      active: editingSelf ? true : form.active,
+      canLogin: editingSelf ? true : form.canLogin,
+      passwordHash,
+      mustChangePassword: form.provisionalPassword ? true : editing?.mustChangePassword,
+    }
+    const people = editing ? data.people.map(item => item.id === editing.id ? person : item) : [...data.people, person]
+    const account = person.id === data.account.id ? accountFromPerson(person, data.account) : data.account
+    onChange({ ...data, account, people }, editing ? 'Cadastro atualizado com sucesso.' : 'Pessoa cadastrada com sucesso.')
+    reset()
+  }
+
+  const remove = (person: Person) => {
+    if (person.id === data.account.id) return setError('O usuário conectado não pode excluir o próprio cadastro.')
+    if (!window.confirm(`Excluir o cadastro de ${person.name}? Os registros já realizados permanecerão no histórico.`)) return
+    onChange({ ...data, people: data.people.filter(item => item.id !== person.id) }, 'Pessoa excluída com sucesso.')
+    if (editingId === person.id) reset()
+  }
+
+  const formContent = <form className="catalog-form people-form" onSubmit={submit}>
+    <label>Nome<input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} required /></label>
+    <label>E-mail {form.canLogin ? '' : '(opcional)'}<input type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} required={form.canLogin} /></label>
+    <fieldset className="profile-selector wide"><legend>Perfis de acesso</legend><p>O acesso de Técnico é a base de todos os demais perfis.</p><div>{profileNames.map(profile => {
+      const checked = form.profiles.includes(profile) || (profile === 'Técnico' && !form.profiles.includes('Administrador'))
+      return <label className={checked ? 'profile-option selected' : 'profile-option'} key={profile}><input type="checkbox" checked={checked} disabled={profile === 'Técnico' || (editingSelf && normalizeProfiles(editing?.groups).includes('Administrador'))} onChange={() => toggleProfile(profile)} /><span>{profile}</span></label>
+    })}</div></fieldset>
+    <label className="inline-check"><input type="checkbox" checked={form.canLogin} disabled={editingSelf} onChange={event => setForm({ ...form, canLogin: event.target.checked })} /> Poderá acessar a plataforma</label>
+    <label className="inline-check"><input type="checkbox" checked={form.active} disabled={editingSelf} onChange={event => setForm({ ...form, active: event.target.checked })} /> Cadastro ativo</label>
+    <label className="wide">{editing ? 'Nova senha provisória (opcional)' : 'Senha provisória'}<div className="password-input-hint"><KeyRound size={16} /><input type="text" value={form.provisionalPassword} onChange={event => setForm({ ...form, provisionalPassword: event.target.value })} required={form.canLogin && !editing} placeholder={editing ? 'Preencha somente para redefinir a senha' : 'Mínimo de 8 caracteres, com letra e número'} /></div><small>{editing ? 'Ao preencher, a senha atual será substituída e a troca será obrigatória no próximo acesso.' : 'A pessoa deverá criar uma nova senha no primeiro acesso.'}</small></label>
+    {error && <p className="catalog-form-error wide">{error}</p>}
+    <div className="catalog-form-actions wide">{editing && <button type="button" className="secondary-button" onClick={reset}><X size={16} /> Cancelar edição</button>}<button className="primary-button">{editing ? <Pencil size={17} /> : <Plus size={17} />}{editing ? 'Salvar alterações' : 'Adicionar pessoa'}</button></div>
+  </form>
+
+  const peopleTable = <div className="responsive-table"><table><thead><tr><th>Pessoa</th><th>E-mail</th><th>Perfis</th><th>Acesso</th><th>Status</th><th>Ações</th></tr></thead><tbody>{visible.length ? visible.map(person => <tr key={person.id}><td><b>{person.name}</b></td><td>{person.email || 'Sem acesso'}</td><td><div className="profile-tags">{normalizeProfiles(person.groups).map(profile => <span key={profile}>{profile}</span>)}</div></td><td>{person.canLogin ? 'Liberado' : 'Sem login'}</td><td><span className={`status ${person.active ? 'success' : 'danger'}`}>{person.active ? 'Ativo' : 'Inativo'}</span></td><td><div className="row-actions"><button className="secondary-button compact" onClick={() => startEdit(person)}><Pencil size={14} /> Editar</button><button className="danger-button compact" disabled={person.id === data.account.id} onClick={() => remove(person)}><Trash2 size={14} /> Excluir</button></div></td></tr>) : <tr><td colSpan={6} className="table-empty">Nenhuma pessoa encontrada.</td></tr>}</tbody></table></div>
+
+  return <CatalogLayout title={editing ? `Editar ${editing.name}` : 'Cadastrar pessoa'} form={formContent} table={peopleTable} />
 }
 
 function ClientCatalog({ data, query, onChange }: CatalogProps) {

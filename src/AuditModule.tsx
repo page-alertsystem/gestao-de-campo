@@ -1,6 +1,7 @@
 import { ChangeEvent, PointerEvent as ReactPointerEvent, useRef, useState } from 'react'
 import { AlertTriangle, CalendarDays, Camera, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, FileDown, ListChecks, PenLine, ShieldCheck, UserCheck, Wrench, X } from 'lucide-react'
 import { jsPDF } from 'jspdf'
+import { hasProfile } from './access'
 import type { AppData, AuditCategory, AuditItemResult, AuditRecord, InventoryItem } from './store'
 import { publicAsset } from './paths'
 
@@ -50,13 +51,14 @@ function oneWeekAfter(date: Date) {
   return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`
 }
 
-export function AuditPage({ data, onStart }: { data: AppData; onStart: (start: AuditStart) => void }) {
-  const categories: { id: AuditCategory; label: string; description: string; icon: typeof Wrench }[] = [
+export function AuditPage({ data, allowedCategories, onStart }: { data: AppData; allowedCategories: AuditCategory[]; onStart: (start: AuditStart) => void }) {
+  const allCategories: { id: AuditCategory; label: string; description: string; icon: typeof Wrench }[] = [
     { id: 'Ferramentas', label: 'Ferramentas', description: 'Auditoria mensal de funcionamento e segurança.', icon: Wrench },
     { id: 'EPIs', label: 'EPIs', description: 'Auditoria mensal de conservação e aprovação.', icon: ShieldCheck },
     { id: 'Escadas', label: 'Escadas', description: 'Auditoria semanal de estabilidade, degraus e fixações.', icon: ListChecks },
   ]
-  const [category, setCategory] = useState<AuditCategory>('Ferramentas')
+  const categories = allCategories.filter(item => allowedCategories.includes(item.id))
+  const [category, setCategory] = useState<AuditCategory>(allowedCategories[0] ?? 'Escadas')
   const [personId, setPersonId] = useState('')
   const selected = categories.find(item => item.id === category)!
   const SelectedIcon = selected.icon
@@ -64,7 +66,7 @@ export function AuditPage({ data, onStart }: { data: AppData; onStart: (start: A
   const selectedItems = personId ? itemsForAudit(data, category, personId) : []
   const latestFor = (targetPersonId: string, type: AuditCategory) => [...data.audits].filter(item => item.personId === targetPersonId && item.category === type).sort((a, b) => b.completedAt.localeCompare(a.completedAt))[0]
   const currentPerson = data.people.find(person => person.id === data.account.id)
-  const canAuditOthers = currentPerson?.groups.some(group => ['Administrador', 'Auditor', 'Segurança do Trabalho'].includes(group)) ?? false
+  const canAuditOthers = hasProfile(currentPerson?.groups, 'Auditoria')
   const people = data.people.filter(person => person.active && (category !== 'Escadas' || canAuditOthers || person.id === data.account.id)).map(person => ({ person, items: itemsForAudit(data, category, person.id), latest: latestFor(person.id, category) })).filter(entry => entry.items.length > 0)
 
   if (selectedPerson) {

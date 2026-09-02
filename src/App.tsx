@@ -4,7 +4,6 @@ import {
   Download, FileBarChart, FolderOpen, Home, LogOut, MapPin, Menu, PackageCheck, Plus, Route,
   Search, Settings, ShieldCheck, Signal, SignalZero, Users, Warehouse, Wrench, X,
 } from 'lucide-react'
-import { PermissionMatrix } from './PermissionMatrix'
 import { KmForm } from './KmForm'
 import { StockRequestForm } from './StockRequestForm'
 import { StockManagement } from './StockManagement'
@@ -16,11 +15,11 @@ import { DamagedEquipmentPage, RmaRequestPage } from './MaintenanceModule'
 import { fetchSurveyStatus, nextSurveySyncTime, SurveyPage, surveyNeedsStatusSync } from './SurveyModule'
 import { ReportsPage, type ReportId } from './ReportsModule'
 import { DocumentsPage, type DocumentSection } from './DocumentsModule'
-import { formatQuantity, hashPassword, loadAppData, normalizeAppData, saveAppData, type AppData, type InventoryItem, type StockRequest } from './store'
+import { allowedPagesForProfiles, hasProfile, normalizeProfiles, profileDescriptions, profileNames, profileSummary, type Page } from './access'
+import { accountFromPerson, formatQuantity, hashPassword, loadAppData, normalizeAppData, saveAppData, type AppData, type InventoryItem, type StockRequest } from './store'
 import { clearServerSession, initializeCentralData, loginCentralServer, saveCentralData } from './serverApi'
 import { publicAsset } from './paths'
 
-type Page = 'inicio' | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'gestao-auditoria' | 'gestao-solicitacoes' | 'gestao-levantamento' | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes' | 'estoque-pedidos' | 'estoque-baixas' | 'estoque-gerenciamento' | 'manutencao-rma' | 'manutencao-danificados' | 'documentos-auditorias' | 'documentos-troca-veiculo' | 'relatorios-km' | 'relatorios-registro-dia' | 'relatorios-ponto' | 'relatorios-auditoria' | 'relatorios-solicitacoes' | 'relatorios-ferramentas' | 'relatorios-epis' | 'relatorios-insumos' | 'relatorios-baixas' | 'relatorios-rma' | 'relatorios-levantamentos' | 'configuracoes'
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; formOpenedAt: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
 
@@ -119,7 +118,6 @@ export default function App() {
   const [documentsOpen, setDocumentsOpen] = useState(false)
   const [reportsOpen, setReportsOpen] = useState(false)
   const [activeAction, setActiveAction] = useState<ActionName | null>(null)
-  const [permissionsOpen, setPermissionsOpen] = useState(false)
   const [kmOpen, setKmOpen] = useState(false)
   const [requestOpen, setRequestOpen] = useState(false)
   const [activeAudit, setActiveAudit] = useState<AuditStart | null>(null)
@@ -239,26 +237,60 @@ export default function App() {
       const ready = normalizeAppData(central.data)
       setData(ready)
       void saveAppData(ready)
+      void saveCentralData(ready).catch(() => undefined)
       sessionStorage.setItem('gio-admin-session', '1')
       setLogged(true)
       return null
     }
-    if (email.trim().toLowerCase() !== data.account.email.toLowerCase() || await hashPassword(password) !== data.account.passwordHash) return 'E-mail ou senha inválidos.'
+    const normalizedEmail = email.trim().toLowerCase()
+    const person = data.people.find(item => item.active && item.canLogin && item.email.trim().toLowerCase() === normalizedEmail)
+    if (!person) return 'E-mail ou senha inválidos.'
+    const account = accountFromPerson(person, data.account)
+    if (!account.passwordHash || await hashPassword(password) !== account.passwordHash) return 'E-mail ou senha inválidos.'
+    const ready = { ...data, account }
+    setData(ready)
+    void saveAppData(ready)
     sessionStorage.setItem('gio-admin-session', '1')
     setLogged(true)
     return null
   }} />
   if (data.account.mustChangePassword) return <PasswordChange onSave={async password => {
-    const next = { ...data, account: { ...data.account, passwordHash: await hashPassword(password), mustChangePassword: false } }
+    const passwordHash = await hashPassword(password)
+    const next = {
+      ...data,
+      account: { ...data.account, passwordHash, mustChangePassword: false },
+      people: data.people.map(person => person.id === data.account.id ? { ...person, passwordHash, mustChangePassword: false } : person),
+    }
     updateData(next)
   }} onSignOut={signOut} />
 
   const currentPerson = data.people.find(person => person.id === data.account.id)
-  const canManageStock = currentPerson?.groups.some(group => group === 'Administrador' || group === 'Estoque') ?? false
-  const visibleStockPages = stockPages.filter(item => item.id !== 'estoque-gerenciamento' || canManageStock)
-  const activeReport = reportPages.find(item => item.id === page)
-  const activeDocument = documentPages.find(item => item.id === page)
-  const title = operationPages.find(item => item.id === page)?.label ?? managementPages.find(item => item.id === page)?.label ?? personalPages.find(item => item.id === page)?.label ?? stockPages.find(item => item.id === page)?.label ?? maintenancePages.find(item => item.id === page)?.label ?? activeDocument?.label ?? activeReport?.label ?? nav.find(item => item.id === page)?.label ?? 'Início'
+  const currentProfiles = normalizeProfiles(currentPerson?.groups)
+  const allowedPages = allowedPagesForProfiles(currentProfiles)
+  const visiblePage: Page = allowedPages.has(page) ? page : 'inicio'
+  const visibleOperationPages = operationPages.filter(item => allowedPages.has(item.id))
+  const visibleManagementPages = managementPages.filter(item => allowedPages.has(item.id))
+  const visiblePersonalPages = personalPages.filter(item => allowedPages.has(item.id))
+  const visibleStockPages = stockPages.filter(item => allowedPages.has(item.id))
+  const visibleMaintenancePages = maintenancePages.filter(item => allowedPages.has(item.id))
+  const visibleDocumentPages = documentPages.filter(item => allowedPages.has(item.id))
+  const visibleReportPages = reportPages.filter(item => allowedPages.has(item.id))
+  const visibleNav = nav.filter(item => {
+    if (item.label === 'Operação') return visibleOperationPages.length > 0
+    if (item.label === 'Gestão') return visibleManagementPages.length > 0
+    if (item.label === 'Pessoal') return visiblePersonalPages.length > 0
+    if (item.label === 'Estoque') return visibleStockPages.length > 0
+    if (item.label === 'Manutenção') return visibleMaintenancePages.length > 0
+    if (item.label === 'Documentos') return visibleDocumentPages.length > 0
+    if (item.label === 'Relatórios') return visibleReportPages.length > 0
+    return allowedPages.has(item.id)
+  })
+  const canManageStock = hasProfile(currentProfiles, 'Estoque')
+  const canAuditAll = hasProfile(currentProfiles, 'Auditoria')
+  const activeReport = visibleReportPages.find(item => item.id === visiblePage)
+  const activeDocument = visibleDocumentPages.find(item => item.id === visiblePage)
+  const title = operationPages.find(item => item.id === visiblePage)?.label ?? managementPages.find(item => item.id === visiblePage)?.label ?? personalPages.find(item => item.id === visiblePage)?.label ?? stockPages.find(item => item.id === visiblePage)?.label ?? maintenancePages.find(item => item.id === visiblePage)?.label ?? activeDocument?.label ?? activeReport?.label ?? nav.find(item => item.id === visiblePage)?.label ?? 'Início'
+  const initials = data.account.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase()
 
   return <div className="app-shell">
     <aside className={drawer ? 'sidebar open' : 'sidebar'}>
@@ -267,77 +299,77 @@ export default function App() {
         <div><b>GIO</b><span>Gestão Integrada<br />de Operações</span></div>
       </div>
       <nav className="main-nav" aria-label="Navegação principal">
-        {nav.map(item => {
+        {visibleNav.map(item => {
           const Icon = item.icon
           if (item.label === 'Operação') return <div className="nav-group" key={item.id}>
-            <button className={isOperationPage(page) ? 'nav-item active' : 'nav-item'} onClick={() => setOperationOpen(current => !current)} aria-expanded={operationOpen}>
+            <button className={isOperationPage(visiblePage) ? 'nav-item active' : 'nav-item'} onClick={() => setOperationOpen(current => !current)} aria-expanded={operationOpen}>
               <Icon size={20} /><span>{item.label}</span><ChevronDown className={operationOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
             </button>
-            {operationOpen && <div className="nav-submenu">{operationPages.map(subitem => {
+            {operationOpen && <div className="nav-submenu">{visibleOperationPages.map(subitem => {
               const SubIcon = subitem.icon
-              return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
+              return <button key={subitem.id} className={visiblePage === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
             })}</div>}
           </div>
           if (item.label === 'Gestão') return <div className="nav-group" key={item.id}>
-            <button className={isManagementPage(page) ? 'nav-item active' : 'nav-item'} onClick={() => setManagementOpen(current => !current)} aria-expanded={managementOpen}>
+            <button className={isManagementPage(visiblePage) ? 'nav-item active' : 'nav-item'} onClick={() => setManagementOpen(current => !current)} aria-expanded={managementOpen}>
               <Icon size={20} /><span>{item.label}</span><ChevronDown className={managementOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
             </button>
-            {managementOpen && <div className="nav-submenu">{managementPages.map(subitem => {
+            {managementOpen && <div className="nav-submenu">{visibleManagementPages.map(subitem => {
               const SubIcon = subitem.icon
-              return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
+              return <button key={subitem.id} className={visiblePage === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
             })}</div>}
           </div>
           if (item.label === 'Pessoal') return <div className="nav-group" key={item.id}>
-            <button className={isPersonalPage(page) ? 'nav-item active' : 'nav-item'} onClick={() => setPersonalOpen(current => !current)} aria-expanded={personalOpen}>
+            <button className={isPersonalPage(visiblePage) ? 'nav-item active' : 'nav-item'} onClick={() => setPersonalOpen(current => !current)} aria-expanded={personalOpen}>
               <Icon size={20} /><span>{item.label}</span><ChevronDown className={personalOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
             </button>
-            {personalOpen && <div className="nav-submenu">{personalPages.map(subitem => {
+            {personalOpen && <div className="nav-submenu">{visiblePersonalPages.map(subitem => {
               const SubIcon = subitem.icon
-              return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
+              return <button key={subitem.id} className={visiblePage === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
             })}</div>}
           </div>
           if (item.label === 'Estoque') return <div className="nav-group" key={item.id}>
-            <button className={isStockPage(page) ? 'nav-item active' : 'nav-item'} onClick={() => setStockOpen(current => !current)} aria-expanded={stockOpen}>
+            <button className={isStockPage(visiblePage) ? 'nav-item active' : 'nav-item'} onClick={() => setStockOpen(current => !current)} aria-expanded={stockOpen}>
               <Icon size={20} /><span>{item.label}</span><ChevronDown className={stockOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
             </button>
             {stockOpen && <div className="nav-submenu">{visibleStockPages.map(subitem => {
               const SubIcon = subitem.icon
-              return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
+              return <button key={subitem.id} className={visiblePage === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
             })}</div>}
           </div>
           if (item.label === 'Manutenção') return <div className="nav-group" key={item.id}>
-            <button className={isMaintenancePage(page) ? 'nav-item active' : 'nav-item'} onClick={() => setMaintenanceOpen(current => !current)} aria-expanded={maintenanceOpen}>
+            <button className={isMaintenancePage(visiblePage) ? 'nav-item active' : 'nav-item'} onClick={() => setMaintenanceOpen(current => !current)} aria-expanded={maintenanceOpen}>
               <Icon size={20} /><span>{item.label}</span><ChevronDown className={maintenanceOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
             </button>
-            {maintenanceOpen && <div className="nav-submenu">{maintenancePages.map(subitem => {
+            {maintenanceOpen && <div className="nav-submenu">{visibleMaintenancePages.map(subitem => {
               const SubIcon = subitem.icon
-              return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
+              return <button key={subitem.id} className={visiblePage === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
             })}</div>}
           </div>
           if (item.label === 'Relatórios') return <div className="nav-group" key={item.id}>
-            <button className={isReportPage(page) ? 'nav-item active' : 'nav-item'} onClick={() => setReportsOpen(current => !current)} aria-expanded={reportsOpen}>
+            <button className={isReportPage(visiblePage) ? 'nav-item active' : 'nav-item'} onClick={() => setReportsOpen(current => !current)} aria-expanded={reportsOpen}>
               <Icon size={20} /><span>{item.label}</span><ChevronDown className={reportsOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
             </button>
-            {reportsOpen && <div className="nav-submenu">{reportPages.map(subitem => {
+            {reportsOpen && <div className="nav-submenu">{visibleReportPages.map(subitem => {
               const SubIcon = subitem.icon
-              return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
+              return <button key={subitem.id} className={visiblePage === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
             })}</div>}
           </div>
           if (item.label === 'Documentos') return <div className="nav-group" key={item.id}>
-            <button className={isDocumentPage(page) ? 'nav-item active' : 'nav-item'} onClick={() => setDocumentsOpen(current => !current)} aria-expanded={documentsOpen}>
+            <button className={isDocumentPage(visiblePage) ? 'nav-item active' : 'nav-item'} onClick={() => setDocumentsOpen(current => !current)} aria-expanded={documentsOpen}>
               <Icon size={20} /><span>{item.label}</span><ChevronDown className={documentsOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
             </button>
-            {documentsOpen && <div className="nav-submenu">{documentPages.map(subitem => {
+            {documentsOpen && <div className="nav-submenu">{visibleDocumentPages.map(subitem => {
               const SubIcon = subitem.icon
-              return <button key={subitem.id} className={page === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
+              return <button key={subitem.id} className={visiblePage === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
             })}</div>}
           </div>
-          return <button key={item.id} className={page === item.id ? 'nav-item active' : 'nav-item'} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label}</span></button>
+          return <button key={item.id} className={visiblePage === item.id ? 'nav-item active' : 'nav-item'} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label}</span></button>
         })}
       </nav>
       <div className="sidebar-foot">
-        <div className="profile-avatar">GA</div>
-        <div className="profile-copy"><b>{data.account.name}</b><span>Administrador</span></div>
+        <div className="profile-avatar">{initials}</div>
+        <div className="profile-copy"><b>{data.account.name}</b><span>{profileSummary(currentProfiles)}</span></div>
         <button className="icon-button dark" onClick={signOut} aria-label="Sair"><LogOut size={18} /></button>
       </div>
     </aside>
@@ -356,7 +388,7 @@ export default function App() {
             {online ? 'Online' : 'Sem internet'}
           </span>
           <button className="notification-button" aria-label="Notificações"><Bell size={20} />{data.notifications.some(item => !item.read) && <span>{data.notifications.filter(item => !item.read).length}</span>}</button>
-          <div className="top-avatar">GA</div>
+          <div className="top-avatar">{initials}</div>
         </div>
       </header>
 
@@ -365,39 +397,39 @@ export default function App() {
 
       <main className="page-content">
         {toast && <div className="toast" role="status"><CheckCircle2 size={19} />{toast}</div>}
-        {page === 'inicio' && <Dashboard data={data} activities={activities} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} onRequest={() => setRequestOpen(true)} />}
-        {isOperationPage(page) && <OperationPage section={page} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
-        {page === 'gestao-auditoria' && <AuditPage data={data} onStart={setActiveAudit} />}
-        {page === 'gestao-solicitacoes' && <StockRequestsPage data={data} onNewRequest={() => setRequestOpen(true)} />}
-        {page === 'gestao-levantamento' && <SurveyPage data={data} onChange={updateData} />}
-        {['pessoal-ferramentas', 'pessoal-insumos', 'pessoal-epis'].includes(page) && <StockPage section={page} data={data} onChange={updateData} />}
-        {page === 'pessoal-aprovacoes' && <StockApprovals data={data} onChange={updateData} />}
-        {page === 'estoque-baixas' && <MaterialWriteOffsPage data={data} onChange={updateData} />}
-        {page === 'estoque-pedidos' && <StockOrdersPage data={data} onChange={updateData} />}
-        {page === 'estoque-gerenciamento' && canManageStock && <StockManagement data={data} onChange={updateData} />}
-        {page === 'manutencao-rma' && <RmaRequestPage data={data} onChange={updateData} />}
-        {page === 'manutencao-danificados' && <DamagedEquipmentPage data={data} onChange={updateData} />}
+        {visiblePage === 'inicio' && <Dashboard data={data} activities={activities} allowedPages={allowedPages} profiles={currentProfiles} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} onRequest={() => setRequestOpen(true)} />}
+        {isOperationPage(visiblePage) && <OperationPage section={visiblePage} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
+        {visiblePage === 'gestao-auditoria' && <AuditPage data={data} allowedCategories={canAuditAll ? ['Ferramentas', 'EPIs', 'Escadas'] : ['Escadas']} onStart={setActiveAudit} />}
+        {visiblePage === 'gestao-solicitacoes' && <StockRequestsPage data={data} onNewRequest={() => setRequestOpen(true)} />}
+        {visiblePage === 'gestao-levantamento' && <SurveyPage data={data} onChange={updateData} />}
+        {['pessoal-ferramentas', 'pessoal-insumos', 'pessoal-epis'].includes(visiblePage) && <StockPage section={visiblePage} data={data} onChange={updateData} />}
+        {visiblePage === 'pessoal-aprovacoes' && <StockApprovals data={data} onChange={updateData} />}
+        {visiblePage === 'estoque-baixas' && <MaterialWriteOffsPage data={data} onChange={updateData} />}
+        {visiblePage === 'estoque-pedidos' && <StockOrdersPage data={data} onChange={updateData} />}
+        {visiblePage === 'estoque-gerenciamento' && canManageStock && <StockManagement data={data} onChange={updateData} />}
+        {visiblePage === 'manutencao-rma' && <RmaRequestPage data={data} onChange={updateData} />}
+        {visiblePage === 'manutencao-danificados' && <DamagedEquipmentPage data={data} onChange={updateData} />}
         {activeDocument && <DocumentsPage data={data} section={activeDocument.section} />}
         {activeReport && <ReportsPage key={activeReport.reportId} data={data} reportId={activeReport.reportId} />}
-        {page === 'configuracoes' && <SettingsPage data={data} onChange={updateData} onOpenPermissions={() => setPermissionsOpen(true)} />}
+        {visiblePage === 'configuracoes' && <SettingsPage data={data} onChange={updateData} />}
       </main>
 
       <nav className="mobile-nav" aria-label="Navegação móvel">
-        {nav.map(item => {
+        {visibleNav.map(item => {
           const Icon = item.icon
-          const active = item.label === 'Operação' ? isOperationPage(page) : item.label === 'Gestão' ? isManagementPage(page) : item.label === 'Pessoal' ? isPersonalPage(page) : item.label === 'Estoque' ? isStockPage(page) : item.label === 'Manutenção' ? isMaintenancePage(page) : item.label === 'Documentos' ? isDocumentPage(page) : item.label === 'Relatórios' ? isReportPage(page) : page === item.id
-          return <button key={item.id} className={active ? 'active' : ''} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label === 'Configurações' ? 'Mais' : item.label}</span></button>
+          const active = item.label === 'Operação' ? isOperationPage(visiblePage) : item.label === 'Gestão' ? isManagementPage(visiblePage) : item.label === 'Pessoal' ? isPersonalPage(visiblePage) : item.label === 'Estoque' ? isStockPage(visiblePage) : item.label === 'Manutenção' ? isMaintenancePage(visiblePage) : item.label === 'Documentos' ? isDocumentPage(visiblePage) : item.label === 'Relatórios' ? isReportPage(visiblePage) : visiblePage === item.id
+          const target = item.label === 'Operação' ? visibleOperationPages[0]?.id : item.label === 'Gestão' ? visibleManagementPages[0]?.id : item.label === 'Pessoal' ? visiblePersonalPages[0]?.id : item.label === 'Estoque' ? visibleStockPages[0]?.id : item.label === 'Manutenção' ? visibleMaintenancePages[0]?.id : item.label === 'Documentos' ? visibleDocumentPages[0]?.id : item.label === 'Relatórios' ? visibleReportPages[0]?.id : item.id
+          return <button key={item.id} className={active ? 'active' : ''} onClick={() => target && navigate(target)}><Icon size={20} /><span>{item.label === 'Configurações' ? 'Mais' : item.label}</span></button>
         })}
       </nav>
     </div>
 
     {activeAction && <QuickRegister action={activeAction} online={online} clients={data.clients.filter(item => item.active).map(item => item.name)} technicians={data.people.filter(item => item.active && item.id !== data.account.id).map(item => item.name)} onClose={() => setActiveAction(null)} onSave={register} />}
-    {permissionsOpen && <div className="full-screen-layer"><PermissionMatrix initial={data.permissions} onClose={() => setPermissionsOpen(false)} onSaved={permissions => { updateData({ ...data, permissions }, 'Permissões atualizadas com sucesso.'); setPermissionsOpen(false) }} /></div>}
     {kmOpen && <KmForm vehicles={data.vehicles.filter(item => item.active)} clients={data.clients.filter(item => item.active).map(item => item.name)} driver={data.account.name} onClose={() => setKmOpen(false)} onComplete={record => { const next = { ...data, kmRecords: [...data.kmRecords, record], vehicles: data.vehicles.map(vehicle => vehicle.plate === record.vehicle ? { ...vehicle, mileage: record.mileage } : vehicle) }; updateData(next); setKmOpen(false); showToast('Relatório de KM registrado com sucesso.') }} />}
     {requestOpen && <StockRequestForm code={nextRequestCode(data)} requester={data.account.name} people={data.people} clients={data.clients} onClose={() => setRequestOpen(false)} onComplete={request => {
       const stockRequest: StockRequest = { id: crypto.randomUUID(), ...request, createdAt: new Date().toISOString(), status: 'Pedido recebido', author: data.account.name }
       const technicianExists = data.people.some(person => person.name.trim().toLowerCase() === request.technician.trim().toLowerCase())
-      const people = technicianExists ? data.people : [...data.people, { id: crypto.randomUUID(), name: request.technician, email: '', groups: ['Técnico de Campo'], active: true, canLogin: false }]
+      const people = technicianExists ? data.people : [...data.people, { id: crypto.randomUUID(), name: request.technician, email: '', groups: ['Técnico'], active: true, canLogin: false }]
       updateData({ ...data, people, stockRequests: [...data.stockRequests, stockRequest] }); setRequestOpen(false); showToast(`Solicitação ${request.code} criada com sucesso.`)
     }} />}
     {activeAudit && <AuditWizard data={data} start={activeAudit} onCancel={() => setActiveAudit(null)} onComplete={audit => { const nextDate = new Date(`${audit.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR'); updateData({ ...data, audits: [...data.audits, audit] }, `Auditoria concluída e PDF salvo. Próxima auditoria: ${nextDate}.`); setActiveAudit(null) }} />}
@@ -406,7 +438,7 @@ export default function App() {
 
 function Login({ onLogin }: { onLogin: (email: string, password: string) => Promise<string | null> }) {
   const [showPassword, setShowPassword] = useState(false)
-  const [email, setEmail] = useState('gabriel.alcantara@alertsystem.com.br')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -435,8 +467,8 @@ function Login({ onLogin }: { onLogin: (email: string, password: string) => Prom
         <label>Senha<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required /><button type="button" onClick={() => setShowPassword(value => !value)}>{showPassword ? 'Ocultar' : 'Mostrar'}</button></div></label>
         {error && <div className="login-error"><AlertTriangle size={17} />{error}</div>}
         <button className="primary-button full" type="submit" disabled={busy}>{busy ? 'Verificando...' : 'Entrar na plataforma'} {!busy && <ChevronRight size={18} />}</button>
-        <button className="text-button" type="button">Preciso de uma nova senha provisória</button>
-        <div className="preview-note"><ShieldCheck size={18} /><span>Prévia inicial. A autenticação definitiva será conectada ao ambiente escolhido.</span></div>
+        <button className="text-button" type="button" onClick={() => setError('Solicite uma nova senha provisória ao administrador da GIO.')}>Preciso de uma nova senha provisória</button>
+        <div className="preview-note"><ShieldCheck size={18} /><span>Seu acesso e os menus disponíveis são definidos pelos perfis cadastrados pelo administrador.</span></div>
       </form>
     </section>
   </main>
@@ -455,22 +487,22 @@ function PasswordChange({ onSave, onSignOut }: { onSave: (password: string) => P
   return <main className="password-change-page"><form className="login-card" onSubmit={submit}><img className="password-logo" src={publicAsset('alert-logo.png')} alt="Alert" /><p className="eyebrow">Primeiro acesso</p><h2>Crie sua nova senha</h2><p className="form-intro">A senha provisória só pode ser usada uma vez.</p><label>Nova senha<input type="password" value={password} onChange={event => setPassword(event.target.value)} required /></label><label>Confirmar nova senha<input type="password" value={confirmation} onChange={event => setConfirmation(event.target.value)} required /></label>{error && <div className="login-error"><AlertTriangle size={17} />{error}</div>}<button className="primary-button full">Salvar nova senha <ChevronRight size={18} /></button><button type="button" className="text-button" onClick={onSignOut}>Voltar ao login</button></form></main>
 }
 
-function Dashboard({ data, activities, onAction, onNavigate, onKm, onRequest }: { data: AppData; activities: { title: string; detail: string; tone: string }[]; onAction: (action: ActionName) => void; onNavigate: (page: Page) => void; onKm: () => void; onRequest: () => void }) {
+function Dashboard({ data, activities, allowedPages, profiles, onAction, onNavigate, onKm, onRequest }: { data: AppData; activities: { title: string; detail: string; tone: string }[]; allowedPages: Set<Page>; profiles: string[]; onAction: (action: ActionName) => void; onNavigate: (page: Page) => void; onKm: () => void; onRequest: () => void }) {
   const date = useMemo(() => new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date()), [])
   return <>
     <section className="welcome-row">
-      <div><p className="eyebrow">{date}</p><h2>Bom dia, {data.account.name.split(' ')[0]}</h2><p>Você está conectado como Administrador e possui acesso total.</p></div>
+      <div><p className="eyebrow">{date}</p><h2>Bom dia, {data.account.name.split(' ')[0]}</h2><p>Perfis ativos: {profileSummary(profiles)}.</p></div>
       <button className="secondary-button"><Download size={17} /> Instalar GIO no celular</button>
     </section>
 
     <section className="attention-grid">
-      <button className="attention-card critical" onClick={() => onNavigate('estoque-gerenciamento')}><span><AlertTriangle size={21} /></span><div><b>{data.inventory.filter(item => item.quantity < 0).length}</b><small>Itens com saldo negativo</small></div><ChevronRight size={19} /></button>
-      <button className="attention-card warning"><span><CalendarClock size={21} /></span><div><b>0</b><small>Auditorias próximas</small></div><ChevronRight size={19} /></button>
-      <button className="attention-card neutral" onClick={() => onNavigate('estoque-pedidos')}><span><PackageCheck size={21} /></span><div><b>{data.stockRequests.filter(item => item.status !== 'Pedido separado').length}</b><small>Pedidos em andamento</small></div><ChevronRight size={19} /></button>
+      {allowedPages.has('estoque-gerenciamento') && <button className="attention-card critical" onClick={() => onNavigate('estoque-gerenciamento')}><span><AlertTriangle size={21} /></span><div><b>{data.inventory.filter(item => item.quantity < 0).length}</b><small>Itens com saldo negativo</small></div><ChevronRight size={19} /></button>}
+      <button className="attention-card warning" onClick={() => onNavigate('gestao-auditoria')}><span><CalendarClock size={21} /></span><div><b>0</b><small>Auditorias próximas</small></div><ChevronRight size={19} /></button>
+      {allowedPages.has('estoque-pedidos') && <button className="attention-card neutral" onClick={() => onNavigate('estoque-pedidos')}><span><PackageCheck size={21} /></span><div><b>{data.stockRequests.filter(item => item.status !== 'Pedido separado').length}</b><small>Pedidos em andamento</small></div><ChevronRight size={19} /></button>}
       <button className="attention-card success"><span><ClipboardCheck size={21} /></span><div><b>{data.trajectories.filter(item => item.declaredDate === todayInput()).length + data.kmRecords.length}</b><small>Registros realizados hoje</small></div><ChevronRight size={19} /></button>
     </section>
 
-    <section className="form-shortcuts"><button onClick={onKm}><span><CarFront size={22} /></span><div><b>Relatório de KM</b><small>Registre antes de ligar o veículo</small></div><ChevronRight size={19} /></button><button onClick={onRequest}><span><PackageCheck size={22} /></span><div><b>Nova solicitação ao estoque</b><small>Solicite materiais e acompanhe a entrega</small></div><ChevronRight size={19} /></button></section>
+    <section className="form-shortcuts"><button onClick={onKm}><span><CarFront size={22} /></span><div><b>Relatório de KM</b><small>Registre antes de ligar o veículo</small></div><ChevronRight size={19} /></button>{allowedPages.has('gestao-solicitacoes') && <button onClick={onRequest}><span><PackageCheck size={22} /></span><div><b>Nova solicitação ao estoque</b><small>Solicite materiais e acompanhe a entrega</small></div><ChevronRight size={19} /></button>}</section>
 
     <section className="content-grid">
       <article className="surface quick-surface">
@@ -544,12 +576,11 @@ function StockPage({ section, data, onChange }: { section: Page; data: AppData; 
   </>
 }
 
-function SettingsPage({ data, onChange, onOpenPermissions }: { data: AppData; onChange: (data: AppData, message: string) => void; onOpenPermissions: () => void }) {
-  const departments = ['Técnico', 'RH', 'Logística', 'Estoque', 'RMA', 'Auditor', 'Seg. Trabalho']
+function SettingsPage({ data, onChange }: { data: AppData; onChange: (data: AppData, message: string) => void }) {
   return <>
-    <PageIntro eyebrow="Administração" title="Configurações e acessos" description="Cadastre a operação e defina exatamente o que cada departamento pode fazer." action={<button className="primary-button"><Plus size={18} /> Cadastrar pessoa</button>} />
+    <PageIntro eyebrow="Administração" title="Configurações e acessos" description="Cadastre pessoas e atribua um ou mais perfis predefinidos para cada operador." />
     <section className="settings-grid"><button className="setting-card"><Users size={22} /><div><b>Pessoas e grupos</b><small>{data.people.length} pessoas cadastradas</small></div><ChevronRight size={18} /></button><button className="setting-card"><Warehouse size={22} /><div><b>Clientes e veículos</b><small>{data.clients.length} clientes · {data.vehicles.length} veículos</small></div><ChevronRight size={18} /></button><button className="setting-card"><ShieldCheck size={22} /><div><b>Histórico de segurança</b><small>Administrador com acesso total</small></div><ChevronRight size={18} /></button></section>
-    <section className="surface permission-surface"><div className="section-heading"><div><p className="eyebrow">Matriz de permissões</p><h3>Acessos por departamento</h3></div><button className="secondary-button" onClick={onOpenPermissions}>Abrir matriz completa</button></div><div className="responsive-table"><table className="permission-table"><thead><tr><th>Funcionalidade</th>{departments.map(item => <th key={item}>{item}</th>)}</tr></thead><tbody>{['Visualizar clientes', 'Registrar trajeto', 'Visualizar todos os registros', 'Gerenciar estoque'].map((permission, row) => <tr key={permission}><td>{permission}</td>{departments.map((department, column) => <td key={department}><span className={(row + column) % 3 === 0 || (row === 1 && column === 0) ? 'permission on' : 'permission'}>{(row + column) % 3 === 0 || (row === 1 && column === 0) ? '✓' : ''}</span></td>)}</tr>)}</tbody></table></div><p className="admin-note"><ShieldCheck size={17} />O Administrador não aparece na matriz porque sempre possui acesso total.</p></section>
+    <section className="surface profile-rules"><div className="section-heading"><div><p className="eyebrow">Perfis predefinidos</p><h3>Acessos da plataforma</h3></div><ShieldCheck size={22} /></div><div className="profile-rule-grid">{profileNames.map(profile => <article className={profile === 'Administrador' ? 'profile-rule admin' : 'profile-rule'} key={profile}><div><b>{profile}</b>{profile !== 'Técnico' && profile !== 'Administrador' && <span>Inclui o acesso do Técnico</span>}</div><p>{profileDescriptions[profile]}</p></article>)}</div><p className="admin-note"><ShieldCheck size={17} />Os perfis são acumuláveis. O Administrador sempre possui acesso total e não depende de combinações.</p></section>
     <AdminCatalogs data={data} onChange={onChange} />
   </>
 }

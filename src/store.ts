@@ -1,4 +1,15 @@
-export type Person = { id: string; name: string; email: string; groups: string[]; active: boolean; canLogin: boolean }
+import { normalizeProfiles } from './access'
+
+export type Person = {
+  id: string
+  name: string
+  email: string
+  groups: string[]
+  active: boolean
+  canLogin: boolean
+  passwordHash?: string
+  mustChangePassword?: boolean
+}
 export type Client = { id: string; name: string; city: string; state: string; latitude: string; longitude: string; active: boolean }
 export type Vehicle = { id: string; plate: string; brand: string; model: string; city: string; state: string; mileage: number; active: boolean }
 export type TrajectoryRecord = { id: string; type: string; declaredDate: string; declaredTime: string; recordedAt: string; formOpenedAt?: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number; author: string; pendingSync: boolean }
@@ -64,6 +75,17 @@ export type AuditItemResult = { inventoryItemId: string; equipment: string; code
 export type AuditRecord = { id: string; personId: string; category: AuditCategory; auditorName: string; auditedName: string; scheduledDate?: string; nextAuditDate: string; startedAt: string; completedAt: string; pdfFileName: string; pdfData?: string; pdfStorageKey?: string; results: AuditItemResult[] }
 export type Notification = { id: string; title: string; detail: string; createdAt: string; read: boolean; critical: boolean }
 export type AdminAccount = { id: string; name: string; email: string; passwordHash: string; mustChangePassword: boolean }
+
+export function accountFromPerson(person: Person, fallback?: AdminAccount): AdminAccount {
+  const legacyAccount = fallback?.id === person.id ? fallback : undefined
+  return {
+    id: person.id,
+    name: person.name,
+    email: person.email,
+    passwordHash: person.passwordHash ?? legacyAccount?.passwordHash ?? '',
+    mustChangePassword: person.mustChangePassword ?? legacyAccount?.mustChangePassword ?? false,
+  }
+}
 export type RmaUrgency = 'Baixa' | 'Média' | 'Alta'
 
 function normalizeRmaUrgency(value: unknown): RmaUrgency {
@@ -194,8 +216,20 @@ export async function saveAppData(data: AppData) {
 }
 
 export function normalizeAppData(stored: AppData): AppData {
+  const people = (stored.people ?? []).map(person => {
+    const isLegacyAccount = person.id === stored.account.id || (person.email && person.email.trim().toLowerCase() === stored.account.email.trim().toLowerCase())
+    return {
+      ...person,
+      groups: normalizeProfiles(person.groups),
+      passwordHash: person.passwordHash ?? (isLegacyAccount ? stored.account.passwordHash : undefined),
+      mustChangePassword: person.mustChangePassword ?? (isLegacyAccount ? stored.account.mustChangePassword : false),
+    }
+  })
+  const accountPerson = people.find(person => person.id === stored.account.id)
   return {
     ...stored,
+    account: accountPerson ? accountFromPerson(accountPerson, stored.account) : stored.account,
+    people,
     permissions: stored.permissions ?? [],
     stockRequests: (stored.stockRequests ?? []).map(request => {
       const requestedItems = request.requestedItems?.length ? request.requestedItems.map(item => ({ ...item, status: item.status ?? 'Solicitado' as const })) : Array.from({ length: request.items ?? 0 }, (_, index) => ({
@@ -227,7 +261,7 @@ export function normalizeAppData(stored: AppData): AppData {
       const disposition = item.disposition ?? 'Instalado no cliente'
       return {
         ...item,
-        personName: item.personName ?? stored.people.find(person => person.id === item.personId)?.name ?? stored.account.name,
+        personName: item.personName ?? people.find(person => person.id === item.personId)?.name ?? stored.account.name,
         equipment: item.equipment ?? inventoryItem?.equipment ?? 'Item removido',
         brand: item.brand ?? inventoryItem?.brand ?? '',
         model: item.model ?? inventoryItem?.model ?? '',
@@ -241,7 +275,7 @@ export function normalizeAppData(stored: AppData): AppData {
         photo: item.photo ?? '',
       }
     }),
-    audits: (stored.audits ?? []).map(audit => ({ ...audit, auditorName: audit.auditorName ?? stored.account.name, auditedName: audit.auditedName ?? stored.people.find(person => person.id === audit.personId)?.name ?? 'Pessoa auditada', pdfFileName: audit.pdfFileName ?? 'Relatório anterior' })),
+    audits: (stored.audits ?? []).map(audit => ({ ...audit, auditorName: audit.auditorName ?? stored.account.name, auditedName: audit.auditedName ?? people.find(person => person.id === audit.personId)?.name ?? 'Pessoa auditada', pdfFileName: audit.pdfFileName ?? 'Relatório anterior' })),
     rmaRequests: (stored.rmaRequests ?? []).map(item => ({
       ...item,
       localCode: item.localCode ?? `RMA-${item.id.slice(0, 8).toUpperCase()}`,
@@ -279,7 +313,7 @@ export async function loadAppData(): Promise<AppData> {
   }
   const initial: AppData = {
     account,
-    people: [{ id: account.id, name: account.name, email: account.email, groups: ['Administrador'], active: true, canLogin: true }],
+    people: [{ id: account.id, name: account.name, email: account.email, groups: ['Administrador'], active: true, canLogin: true, passwordHash: account.passwordHash, mustChangePassword: account.mustChangePassword }],
     clients: [], vehicles: [], trajectories: [], stockRequests: [], kmRecords: [], inventory: [], stockAssignments: [], materialUsages: [], audits: [], rmaRequests: [], surveyRequests: [], notifications: [], permissions: [],
   }
   await saveAppData(initial)
