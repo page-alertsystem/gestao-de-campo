@@ -300,7 +300,7 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
         <td><b>{item.movideskTicketId || 'Aguardando'}</b><small className="table-subtitle">{item.localCode}</small></td><td>{item.client}</td><td>{item.technicianName}</td><td><b>{item.equipment}</b></td><td>{new Date(`${item.withdrawalDate}T12:00:00`).toLocaleDateString('pt-BR')}</td><td><span className={`status ${item.status === 'Pedido recebido' ? 'success' : item.status === 'Enviado ao Movidesk' ? 'warning' : 'neutral'}`}>{item.status}</span>{item.integrationError && <small className="rma-table-warning">{item.movideskTicketId ? 'Foto pendente' : 'Envio pendente'}</small>}</td><td>{item.status === 'Pedido recebido' ? <button className="secondary-button compact" disabled={busyId === item.id} onClick={() => setPrintChoice({ request: item, receiving: false })}><RotateCcw size={15} /> Reimprimir</button> : item.status === 'Aguardando integração Movidesk' || (item.integrationError && item.movideskInternalId && item.movideskActionId) ? <button className="primary-button compact" disabled={busyId === item.id} onClick={() => void retryMovidesk(item)}><Send size={15} /> {item.movideskTicketId ? 'Reenviar foto' : 'Reenviar ao Movidesk'}</button> : canReceive ? <button className="primary-button compact" disabled={busyId === item.id} onClick={() => setPrintChoice({ request: item, receiving: true })}><PackageCheck size={15} /> Confirmar recebimento</button> : <span className="table-muted">Aguardando RMA</span>}</td>
       </tr>) : <tr><td colSpan={7} className="table-empty">Nenhum equipamento danificado foi registrado.</td></tr>}</tbody></table></div>
     </section>
-    <section className="surface rma-print-note"><Printer size={21} /><div><b>Comprovante térmico de 80 mm</b><p>Escolha entre a versão completa, com todos os dados e espaço para anotações, ou a versão resumida com logo, ticket, data e técnico.</p></div><ChevronRight size={19} /></section>
+    <section className="surface rma-print-note"><Printer size={21} /><div><b>Comprovante térmico de 80 mm</b><p>Escolha entre a versão completa, com todos os dados e espaço para anotações, ou a versão resumida com logo, ticket, data, técnico e equipamento.</p></div><ChevronRight size={19} /></section>
     {printChoice && <div className="modal-layer thermal-choice-layer">
       <button className="modal-backdrop" aria-label="Fechar escolha de impressão" onClick={() => setPrintChoice(null)} />
       <section className="quick-modal thermal-choice-modal" role="dialog" aria-modal="true" aria-labelledby="thermal-choice-title">
@@ -311,7 +311,7 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
             <span><FileText size={23} /></span><b>Versão completa</b><small>Logo, cliente, código, ticket, data, técnico, equipamento, descrição e espaço para anotações.</small>
           </button>
           <button type="button" className="thermal-choice-card summary" disabled={busyId === printChoice.request.id} onClick={() => void print(printChoice.request, printChoice.receiving, 'summary')}>
-            <span><Printer size={23} /></span><b>Versão resumida</b><small>Somente logo, ticket, data e técnico para identificação rápida.</small>
+            <span><Printer size={23} /></span><b>Versão resumida</b><small>Logo, ticket, data, técnico e equipamento para identificação rápida.</small>
           </button>
         </div>
         <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setPrintChoice(null)}>Cancelar</button></div>
@@ -324,48 +324,54 @@ async function openThermalReceipt(request: RmaRequest, preview: Window | null, v
   let logo = ''
   try { logo = await fetch(publicAsset('alert-logo.png')).then(response => response.blob()).then(blobToDataUrl) } catch { /* O comprovante continua identificável pelo texto. */ }
   const pageWidth = 80
-  const safeLeft = 10
-  const safeRight = 8
+  const safeLeft = 7
+  const safeRight = 7
   const contentWidth = pageWidth - safeLeft - safeRight
   const contentCenter = safeLeft + contentWidth / 2
   const printedDate = new Date(`${request.withdrawalDate}T12:00:00`).toLocaleDateString('pt-BR')
   const ticket = request.movideskTicketId || `${request.localCode} - aguardando Movidesk`
   const fields = variant === 'summary'
-    ? [['Ticket', ticket], ['Data', printedDate], ['Técnico', request.technicianName]]
+    ? [['Ticket', ticket], ['Data', printedDate], ['Técnico', request.technicianName], ['Equipamento', request.equipment]]
     : [['Cliente', request.client], ['Código GIO', request.localCode], ['Ticket', ticket], ['Data', printedDate], ['Técnico', request.technicianName], ['Equipamento', request.equipment], ['Descrição', request.details]]
   const measuring = new jsPDF({ unit: 'mm', format: [pageWidth, 180] })
+  measuring.setFont('helvetica', 'normal'); measuring.setFontSize(8)
   const preparedFields = fields.map(([label, value]) => ({ label, lines: measuring.splitTextToSize(value || '—', contentWidth) as string[] }))
-  const fieldsHeight = preparedFields.reduce((total, field) => total + 4 + Math.max(6, field.lines.length * 4 + 2), 0)
-  const logoHeight = logo ? 20 : 0
+  const labelHeight = 3.2
+  const lineHeight = 3.4
+  const valueHeight = (lines: string[]) => Math.max(4.8, lines.length * lineHeight + 1)
+  const fieldsHeight = preparedFields.reduce((total, field) => total + labelHeight + valueHeight(field.lines), 0)
+  const logoWidth = 28
+  const logoHeight = logo ? (() => {
+    const properties = measuring.getImageProperties(logo)
+    return Math.min(13, logoWidth * properties.height / properties.width)
+  })() : 0
+  const logoBlockHeight = logo ? logoHeight + 3 : 0
   const pageHeight = variant === 'summary'
-    ? Math.max(76, 8 + logoHeight + fieldsHeight + 12)
-    : Math.max(172, 8 + logoHeight + 16 + fieldsHeight + 62)
-  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [80, pageHeight] })
-  let y = 8
+    ? Math.max(58, 6 + logoBlockHeight + fieldsHeight + 6)
+    : Math.max(125, 6 + logoBlockHeight + 9 + fieldsHeight + 49)
+  const pdf = new jsPDF({ orientation: pageHeight < pageWidth ? 'landscape' : 'portrait', unit: 'mm', format: [pageWidth, pageHeight] })
+  let y = 6
   if (logo) {
-    const properties = pdf.getImageProperties(logo)
-    const width = 30
-    const height = Math.min(15, width * properties.height / properties.width)
-    pdf.addImage(logo, logo.startsWith('data:image/png') ? 'PNG' : 'JPEG', contentCenter - width / 2, y, width, height)
-    y += height + 5
+    pdf.addImage(logo, logo.startsWith('data:image/png') ? 'PNG' : 'JPEG', contentCenter - logoWidth / 2, y, logoWidth, logoHeight)
+    y += logoHeight + 3
   }
   if (variant === 'full') {
-    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.setTextColor(25, 25, 25); pdf.text('EQUIPAMENTO DANIFICADO', contentCenter, y, { align: 'center' }); y += 5
-    pdf.setDrawColor(25, 25, 25); pdf.setLineWidth(.35); pdf.line(safeLeft, y, pageWidth - safeRight, y); y += 6
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(10); pdf.setTextColor(25, 25, 25); pdf.text('EQUIPAMENTO DANIFICADO', contentCenter, y, { align: 'center' }); y += 4.5
+    pdf.setDrawColor(25, 25, 25); pdf.setLineWidth(.35); pdf.line(safeLeft, y, pageWidth - safeRight, y); y += 4.5
   }
 
   const field = (label: string, lines: string[]) => {
-    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7); pdf.setTextColor(25, 25, 25); pdf.text(label.toUpperCase(), safeLeft, y); y += 4
-    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9)
-    pdf.text(lines, safeLeft, y); y += Math.max(6, lines.length * 4 + 2)
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(6.5); pdf.setTextColor(25, 25, 25); pdf.text(label.toUpperCase(), safeLeft, y); y += labelHeight
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8)
+    pdf.text(lines, safeLeft, y, { lineHeightFactor: 1.05 }); y += valueHeight(lines)
   }
   preparedFields.forEach(item => field(item.label, item.lines))
   if (variant === 'full') {
-    y += 2
-    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8); pdf.text('ANOTAÇÕES', contentCenter, y, { align: 'center' }); y += 3
-    pdf.setDrawColor(35, 35, 35); pdf.setLineWidth(.35); pdf.roundedRect(safeLeft, y, contentWidth, 46, 2, 2)
-    y += 51
-    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(6); pdf.setTextColor(90, 90, 90)
+    y += 1.5
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7.5); pdf.text('ANOTAÇÕES', contentCenter, y, { align: 'center' }); y += 3
+    pdf.setDrawColor(35, 35, 35); pdf.setLineWidth(.35); pdf.roundedRect(safeLeft, y, contentWidth, 32, 2, 2)
+    y += 36
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(5.5); pdf.setTextColor(90, 90, 90)
     pdf.text(`GIO · ${request.localCode} · impresso em ${new Date().toLocaleString('pt-BR')}`, contentCenter, y, { align: 'center', maxWidth: contentWidth })
   }
 
