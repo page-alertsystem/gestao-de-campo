@@ -347,9 +347,9 @@ async function openThermalReceipt(request: RmaRequest, preview: Window | null, v
   })() : 0
   const logoBlockHeight = logo ? logoHeight + 3 : 0
   const pageHeight = variant === 'summary'
-    ? Math.max(58, 6 + logoBlockHeight + fieldsHeight + 6)
+    ? Math.max(82, 6 + logoBlockHeight + fieldsHeight + 6)
     : Math.max(125, 6 + logoBlockHeight + 9 + fieldsHeight + 49)
-  const pdf = new jsPDF({ orientation: pageHeight < pageWidth ? 'landscape' : 'portrait', unit: 'mm', format: [pageWidth, pageHeight] })
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [pageWidth, pageHeight] })
   let y = 6
   if (logo) {
     pdf.addImage(logo, logo.startsWith('data:image/png') ? 'PNG' : 'JPEG', contentCenter - logoWidth / 2, y, logoWidth, logoHeight)
