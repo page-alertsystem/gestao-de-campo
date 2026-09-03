@@ -13,6 +13,7 @@ vite.config.d.ts
 !.env.server.example
 .gio-server.pid
 .gio-tunnel.pid
+.gio-control.pid
 .logs/
 .gio-data/
 .tools/
