@@ -9,6 +9,8 @@ const todayInput = () => new Date().toISOString().slice(0, 10)
 const movideskEndpoint = String(import.meta.env.VITE_MOVIEDESK_RMA_ENDPOINT ?? '/api/movidesk/rma').trim()
 const serverHealthEndpoint = String(import.meta.env.VITE_GIO_HEALTH_ENDPOINT ?? '/api/health').trim()
 type IntegrationState = 'checking' | 'ready' | 'server-pending' | 'unavailable'
+type ThermalReceiptVariant = 'full' | 'summary'
+type ThermalPrintChoice = { request: RmaRequest; receiving: boolean }
 type MovideskRmaResult = {
   id?: string | number
   ticketId?: string | number
@@ -200,6 +202,7 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
 export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChange: (data: AppData, message?: string) => void }) {
   const [query, setQuery] = useState('')
   const [busyId, setBusyId] = useState('')
+  const [printChoice, setPrintChoice] = useState<ThermalPrintChoice | null>(null)
   const currentPerson = data.people.find(person => person.id === data.account.id)
   const canReceive = currentPerson?.groups.some(group => ['Administrador', 'RMA', 'Manutenção'].includes(group)) ?? false
   const requests = useMemo(() => [...data.rmaRequests].reverse().filter(item => `${item.movideskTicketId} ${item.localCode} ${item.client} ${item.technicianName} ${item.equipment}`.toLowerCase().includes(query.toLowerCase())), [data.rmaRequests, query])
@@ -262,8 +265,9 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
     }
   }
 
-  const print = async (request: RmaRequest, receiving: boolean) => {
+  const print = async (request: RmaRequest, receiving: boolean, variant: ThermalReceiptVariant) => {
     if (receiving && !window.confirm(`Confirmar o recebimento de ${request.equipment}? Esta ação não poderá ser desfeita.`)) return
+    setPrintChoice(null)
     const preview = window.open('', '_blank')
     setBusyId(request.id)
     let savedData: AppData | null = null
@@ -275,8 +279,9 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
       } : { ...request, printCount: request.printCount + 1, lastPrintedAt: now }
       const next: AppData = { ...data, rmaRequests: data.rmaRequests.map(item => item.id === request.id ? updated : item) }
       savedData = next
-      onChange(next, receiving ? 'Recebimento confirmado no GIO. O comprovante térmico foi aberto.' : 'Comprovante aberto para reimpressão.')
-      await openThermalReceipt(updated, preview)
+      const version = variant === 'full' ? 'completa' : 'resumida'
+      onChange(next, receiving ? `Recebimento confirmado no GIO. A versão ${version} foi aberta.` : `Versão ${version} aberta para reimpressão.`)
+      await openThermalReceipt(updated, preview, variant)
     } catch {
       preview?.close()
       onChange(savedData ?? data, 'O recebimento foi mantido no GIO, mas não foi possível abrir o PDF. Use Reimprimir para tentar novamente.')
@@ -292,54 +297,83 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
     <section className="surface table-surface damaged-equipment-table">
       <div className="table-toolbar"><div><p className="eyebrow">Controle de recebimento</p><h3>Tickets de equipamentos danificados</h3></div><label className="search-field"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar ticket ou equipamento" /></label></div>
       <div className="responsive-table"><table><thead><tr><th>Ticket Movidesk</th><th>Cliente</th><th>Técnico</th><th>Equipamento</th><th>Data da retirada</th><th>Status</th><th>Ação</th></tr></thead><tbody>{requests.length ? requests.map(item => <tr key={item.id}>
-        <td><b>{item.movideskTicketId || 'Aguardando'}</b><small className="table-subtitle">{item.localCode}</small></td><td>{item.client}</td><td>{item.technicianName}</td><td><b>{item.equipment}</b></td><td>{new Date(`${item.withdrawalDate}T12:00:00`).toLocaleDateString('pt-BR')}</td><td><span className={`status ${item.status === 'Pedido recebido' ? 'success' : item.status === 'Enviado ao Movidesk' ? 'warning' : 'neutral'}`}>{item.status}</span>{item.integrationError && <small className="rma-table-warning">{item.movideskTicketId ? 'Foto pendente' : 'Envio pendente'}</small>}</td><td>{item.status === 'Pedido recebido' ? <button className="secondary-button compact" disabled={busyId === item.id} onClick={() => void print(item, false)}><RotateCcw size={15} /> Reimprimir</button> : item.status === 'Aguardando integração Movidesk' || (item.integrationError && item.movideskInternalId && item.movideskActionId) ? <button className="primary-button compact" disabled={busyId === item.id} onClick={() => void retryMovidesk(item)}><Send size={15} /> {item.movideskTicketId ? 'Reenviar foto' : 'Reenviar ao Movidesk'}</button> : canReceive ? <button className="primary-button compact" disabled={busyId === item.id} onClick={() => void print(item, true)}><PackageCheck size={15} /> Confirmar recebimento</button> : <span className="table-muted">Aguardando RMA</span>}</td>
+        <td><b>{item.movideskTicketId || 'Aguardando'}</b><small className="table-subtitle">{item.localCode}</small></td><td>{item.client}</td><td>{item.technicianName}</td><td><b>{item.equipment}</b></td><td>{new Date(`${item.withdrawalDate}T12:00:00`).toLocaleDateString('pt-BR')}</td><td><span className={`status ${item.status === 'Pedido recebido' ? 'success' : item.status === 'Enviado ao Movidesk' ? 'warning' : 'neutral'}`}>{item.status}</span>{item.integrationError && <small className="rma-table-warning">{item.movideskTicketId ? 'Foto pendente' : 'Envio pendente'}</small>}</td><td>{item.status === 'Pedido recebido' ? <button className="secondary-button compact" disabled={busyId === item.id} onClick={() => setPrintChoice({ request: item, receiving: false })}><RotateCcw size={15} /> Reimprimir</button> : item.status === 'Aguardando integração Movidesk' || (item.integrationError && item.movideskInternalId && item.movideskActionId) ? <button className="primary-button compact" disabled={busyId === item.id} onClick={() => void retryMovidesk(item)}><Send size={15} /> {item.movideskTicketId ? 'Reenviar foto' : 'Reenviar ao Movidesk'}</button> : canReceive ? <button className="primary-button compact" disabled={busyId === item.id} onClick={() => setPrintChoice({ request: item, receiving: true })}><PackageCheck size={15} /> Confirmar recebimento</button> : <span className="table-muted">Aguardando RMA</span>}</td>
       </tr>) : <tr><td colSpan={7} className="table-empty">Nenhum equipamento danificado foi registrado.</td></tr>}</tbody></table></div>
     </section>
-    <section className="surface rma-print-note"><Printer size={21} /><div><b>Comprovante térmico de 80 mm</b><p>Ao confirmar, o status muda somente no GIO e o PDF é aberto. Depois disso, a única ação disponível será reimprimir.</p></div><ChevronRight size={19} /></section>
+    <section className="surface rma-print-note"><Printer size={21} /><div><b>Comprovante térmico de 80 mm</b><p>Escolha entre a versão completa, com todos os dados e espaço para anotações, ou a versão resumida com logo, ticket, data e técnico.</p></div><ChevronRight size={19} /></section>
+    {printChoice && <div className="modal-layer thermal-choice-layer">
+      <button className="modal-backdrop" aria-label="Fechar escolha de impressão" onClick={() => setPrintChoice(null)} />
+      <section className="quick-modal thermal-choice-modal" role="dialog" aria-modal="true" aria-labelledby="thermal-choice-title">
+        <div className="modal-heading"><div><p className="eyebrow">Impressora térmica · 80 mm</p><h2 id="thermal-choice-title">Escolha a versão</h2></div></div>
+        <p className="thermal-choice-intro">Ticket <b>{printChoice.request.movideskTicketId || printChoice.request.localCode}</b> · {printChoice.request.equipment}</p>
+        <div className="thermal-choice-grid">
+          <button type="button" className="thermal-choice-card" disabled={busyId === printChoice.request.id} onClick={() => void print(printChoice.request, printChoice.receiving, 'full')}>
+            <span><FileText size={23} /></span><b>Versão completa</b><small>Logo, cliente, código, ticket, data, técnico, equipamento, descrição e espaço para anotações.</small>
+          </button>
+          <button type="button" className="thermal-choice-card summary" disabled={busyId === printChoice.request.id} onClick={() => void print(printChoice.request, printChoice.receiving, 'summary')}>
+            <span><Printer size={23} /></span><b>Versão resumida</b><small>Somente logo, ticket, data e técnico para identificação rápida.</small>
+          </button>
+        </div>
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setPrintChoice(null)}>Cancelar</button></div>
+      </section>
+    </div>}
   </>
 }
 
-async function openThermalReceipt(request: RmaRequest, preview: Window | null) {
+async function openThermalReceipt(request: RmaRequest, preview: Window | null, variant: ThermalReceiptVariant) {
   let logo = ''
   try { logo = await fetch(publicAsset('alert-logo.png')).then(response => response.blob()).then(blobToDataUrl) } catch { /* O comprovante continua identificável pelo texto. */ }
-  const measuring = new jsPDF({ unit: 'mm', format: [80, 180] })
-  const descriptionLines = measuring.splitTextToSize(request.details, 68) as string[]
-  const pageHeight = Math.max(156, 102 + descriptionLines.length * 4 + 52)
+  const pageWidth = 80
+  const safeLeft = 10
+  const safeRight = 8
+  const contentWidth = pageWidth - safeLeft - safeRight
+  const contentCenter = safeLeft + contentWidth / 2
+  const printedDate = new Date(`${request.withdrawalDate}T12:00:00`).toLocaleDateString('pt-BR')
+  const ticket = request.movideskTicketId || `${request.localCode} - aguardando Movidesk`
+  const fields = variant === 'summary'
+    ? [['Ticket', ticket], ['Data', printedDate], ['Técnico', request.technicianName]]
+    : [['Cliente', request.client], ['Código GIO', request.localCode], ['Ticket', ticket], ['Data', printedDate], ['Técnico', request.technicianName], ['Equipamento', request.equipment], ['Descrição', request.details]]
+  const measuring = new jsPDF({ unit: 'mm', format: [pageWidth, 180] })
+  const preparedFields = fields.map(([label, value]) => ({ label, lines: measuring.splitTextToSize(value || '—', contentWidth) as string[] }))
+  const fieldsHeight = preparedFields.reduce((total, field) => total + 4 + Math.max(6, field.lines.length * 4 + 2), 0)
+  const logoHeight = logo ? 20 : 0
+  const pageHeight = variant === 'summary'
+    ? Math.max(76, 8 + logoHeight + fieldsHeight + 12)
+    : Math.max(172, 8 + logoHeight + 16 + fieldsHeight + 62)
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [80, pageHeight] })
-  let y = 5
+  let y = 8
   if (logo) {
     const properties = pdf.getImageProperties(logo)
     const width = 30
     const height = Math.min(15, width * properties.height / properties.width)
-    pdf.addImage(logo, logo.startsWith('data:image/png') ? 'PNG' : 'JPEG', (80 - width) / 2, y, width, height)
+    pdf.addImage(logo, logo.startsWith('data:image/png') ? 'PNG' : 'JPEG', contentCenter - width / 2, y, width, height)
     y += height + 5
   }
-  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.setTextColor(25, 25, 25); pdf.text('EQUIPAMENTO DANIFICADO', 40, y, { align: 'center' }); y += 5
-  pdf.setDrawColor(25, 25, 25); pdf.setLineWidth(.35); pdf.line(5, y, 75, y); y += 6
-
-  const field = (label: string, value: string) => {
-    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7); pdf.text(label.toUpperCase(), 6, y); y += 4
-    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9)
-    const lines = pdf.splitTextToSize(value || '—', 68) as string[]
-    pdf.text(lines, 6, y); y += Math.max(6, lines.length * 4 + 2)
+  if (variant === 'full') {
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.setTextColor(25, 25, 25); pdf.text('EQUIPAMENTO DANIFICADO', contentCenter, y, { align: 'center' }); y += 5
+    pdf.setDrawColor(25, 25, 25); pdf.setLineWidth(.35); pdf.line(safeLeft, y, pageWidth - safeRight, y); y += 6
   }
-  field('Cliente', request.client)
-  field('Ticket', request.movideskTicketId || `${request.localCode} - aguardando Movidesk`)
-  field('Data', new Date(`${request.withdrawalDate}T12:00:00`).toLocaleDateString('pt-BR'))
-  field('Equipamento', request.equipment)
-  field('Descrição', request.details)
-  y += 2
-  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8); pdf.text('ANOTAÇÕES', 40, y, { align: 'center' }); y += 3
-  pdf.setDrawColor(35, 35, 35); pdf.setLineWidth(.35); pdf.roundedRect(6, y, 68, 46, 2, 2)
-  y += 51
-  pdf.setFont('helvetica', 'normal'); pdf.setFontSize(6); pdf.setTextColor(90, 90, 90)
-  pdf.text(`GIO · ${request.localCode} · impresso em ${new Date().toLocaleString('pt-BR')}`, 40, y, { align: 'center' })
+
+  const field = (label: string, lines: string[]) => {
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(7); pdf.setTextColor(25, 25, 25); pdf.text(label.toUpperCase(), safeLeft, y); y += 4
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9)
+    pdf.text(lines, safeLeft, y); y += Math.max(6, lines.length * 4 + 2)
+  }
+  preparedFields.forEach(item => field(item.label, item.lines))
+  if (variant === 'full') {
+    y += 2
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(8); pdf.text('ANOTAÇÕES', contentCenter, y, { align: 'center' }); y += 3
+    pdf.setDrawColor(35, 35, 35); pdf.setLineWidth(.35); pdf.roundedRect(safeLeft, y, contentWidth, 46, 2, 2)
+    y += 51
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(6); pdf.setTextColor(90, 90, 90)
+    pdf.text(`GIO · ${request.localCode} · impresso em ${new Date().toLocaleString('pt-BR')}`, contentCenter, y, { align: 'center', maxWidth: contentWidth })
+  }
 
   const blobUrl = URL.createObjectURL(pdf.output('blob'))
   if (preview && !preview.closed) preview.location.href = blobUrl
   else {
     const link = document.createElement('a')
-    link.href = blobUrl; link.download = `RMA-${request.movideskTicketId || request.localCode}-80mm.pdf`; link.click()
+    link.href = blobUrl; link.download = `RMA-${request.movideskTicketId || request.localCode}-${variant === 'full' ? 'completo' : 'resumido'}-80mm.pdf`; link.click()
   }
   window.setTimeout(() => URL.revokeObjectURL(blobUrl), 120000)
 }
