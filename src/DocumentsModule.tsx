@@ -1,6 +1,7 @@
 import { CalendarDays, Download, FileArchive, FileCheck2, FolderOpen, UserRound } from 'lucide-react'
 import type { AppData } from './store'
 import { downloadServerDocument } from './serverApi'
+import { auditSummaryStatus } from './auditChecklist'
 
 export type DocumentSection = 'audits' | 'vehicle-change'
 
@@ -52,7 +53,7 @@ export function DocumentsPage({ data, section }: { data: AppData; section: Docum
         person: audit.auditedName,
         type: `Auditoria de ${audit.category}`,
         identification: `Auditor: ${audit.auditorName}`,
-        details: `${approved} de ${audit.results.length} equipamentos aprovados · Próxima: ${new Date(`${audit.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR')}`,
+        details: `${auditSummaryStatus(audit.category, audit.results)} · ${approved} de ${audit.results.length} equipamentos aprovados · Próxima: ${new Date(`${audit.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR')}`,
         fileName: audit.pdfFileName,
         pdfData: audit.pdfData,
         pdfStorageKey: audit.pdfStorageKey,

@@ -22,6 +22,7 @@ import { publicAsset } from './paths'
 import { itemAuditStatus, itemIdentifier, latestItemAudit, personalInventory, upcomingPersonalAudits } from './personalInventory'
 import { inventoryPrintDocument, type PrintDocument } from './inventoryPrint'
 import { PrintDialog } from './PrintDialog'
+import { restrictLadder } from './auditChecklist'
 
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; formOpenedAt: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
@@ -432,7 +433,7 @@ export default function App() {
       const people = technicianExists ? data.people : [...data.people, { id: crypto.randomUUID(), name: request.technician, email: '', groups: ['Técnico'], active: true, canLogin: false }]
       updateData({ ...data, people, stockRequests: [...data.stockRequests, stockRequest] }); setRequestOpen(false); showToast(`Solicitação ${request.code} criada com sucesso.`)
     }} />}
-    {activeAudit && <AuditWizard data={data} start={activeAudit} onCancel={() => setActiveAudit(null)} onComplete={audit => { const nextDate = new Date(`${audit.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR'); updateData({ ...data, audits: [...data.audits, audit] }, `Auditoria concluída e PDF salvo. Próxima auditoria: ${nextDate}.`); setActiveAudit(null) }} />}
+    {activeAudit && <AuditWizard data={data} start={activeAudit} onCancel={() => setActiveAudit(null)} onBlockLadder={(itemId, personId, question) => updateData(restrictLadder(data, itemId, personId, question))} onComplete={audit => { const nextDate = new Date(`${audit.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR'); updateData({ ...data, audits: [...data.audits, audit] }, `Auditoria concluída e PDF salvo. Próxima auditoria: ${nextDate}.`); setActiveAudit(null) }} />}
   </div>
 }
 
@@ -568,7 +569,7 @@ function StockPage({ section, data, onChange }: { section: Page; data: AppData; 
   const renderStockTable = (title: string, items: typeof filteredItems, secondary = false) => <section className={secondary ? 'surface table-surface stock-secondary-table' : 'surface table-surface'}>
     <div className="table-toolbar"><div><p className="eyebrow">Estoque individual</p><h3>{title}</h3></div><button className="secondary-button compact" disabled={!items.length} onClick={() => setPrintDocument(inventoryPrintDocument(data, title, items))}><Printer size={17} /> Imprimir este bloco</button></div>
     <div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Código / identificador</th><th>Marca / modelo</th><th>Unidade</th><th>Quantidade</th><th>Status</th><th>Ação</th></tr></thead><tbody>{items.length ? items.filter(item => `${item.equipment} ${item.code} ${itemIdentifier(data, data.account.id, item)}`.toLocaleLowerCase('pt-BR').includes(search.trim().toLocaleLowerCase('pt-BR'))).map(item => { const status = itemAuditStatus(data, data.account.id, item); const audit = latestItemAudit(data, data.account.id, item.id); return <tr key={item.id}>
-      <td>{item.equipment}</td><td>{itemIdentifier(data, data.account.id, item)}{itemIdentifier(data, data.account.id, item) !== item.code && <small className="table-subtitle">Cadastro: {item.code}</small>}</td><td>{[item.brand, item.model].filter(Boolean).join(' ') || '—'}</td><td>{item.unit}</td><td>{formatQuantity(item.quantity)}</td><td><span className={`status ${status === 'Não aprovado' ? 'danger' : status === 'Não auditado' ? 'warning' : 'success'}`}>{status}</span>{audit && <small className="table-subtitle">{new Date(audit.record.completedAt).toLocaleDateString('pt-BR')}{audit.result.observation && ` · ${audit.result.observation}`}</small>}</td><td><button className="secondary-button compact" onClick={() => setWriteOffItem(item)}><ClipboardCheck size={15} /> Dar baixa</button></td>
+      <td>{item.equipment}</td><td>{itemIdentifier(data, data.account.id, item)}{itemIdentifier(data, data.account.id, item) !== item.code && <small className="table-subtitle">Cadastro: {item.code}</small>}</td><td>{[item.brand, item.model].filter(Boolean).join(' ') || '—'}</td><td>{item.unit}</td><td>{formatQuantity(item.quantity)}</td><td><span className={`status ${status === 'Não aprovado' || status === 'Não liberada' ? 'danger' : status === 'Não auditado' ? 'warning' : 'success'}`}>{status}</span>{item.ladderRestriction && <small className="table-subtitle">Entre em contato com seu gestor e solicite a substituição.</small>}{audit && <small className="table-subtitle">{new Date(audit.record.completedAt).toLocaleDateString('pt-BR')}{audit.result.observation && ` · ${audit.result.observation}`}</small>}</td><td><button className="secondary-button compact" onClick={() => setWriteOffItem(item)}><ClipboardCheck size={15} /> Dar baixa</button></td>
     </tr> }) : <tr><td colSpan={7} className="table-empty">Nenhum item deste tipo foi atribuído a você.</td></tr>}</tbody></table></div>
   </section>
   return <>

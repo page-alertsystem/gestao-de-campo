@@ -23,6 +23,7 @@ export function inventoryPrintDocument(data: AppData, title: string, items: Inve
       if (audit) fields.push(['Última auditoria', dateTime(audit.record.completedAt)], ['Auditor', audit.record.auditorName],
         ['Identificador atual na auditoria', audit.result.currentIdentifier || audit.result.code || 'Não informado'],
         ['Novo identificador na auditoria', audit.result.newIdentifier || 'Não informado'], ['Observação da auditoria', audit.result.observation || 'Sem observações'])
+      if (item.ladderRestriction) fields.push(['Não liberada desde', dateTime(item.ladderRestriction.reportedAt)], ['Registrado por', item.ladderRestriction.reportedBy], ['Itens não conformes', item.ladderRestriction.questions.join('\n')], ['Orientação', 'Entrar em contato com o gestor e solicitar a substituição.'])
       assignments.forEach((entry, index) => fields.push([`Recebimento ${index + 1}`, `${dateTime(entry.approvedAt)} | ${formatQuantity(entry.quantity)} ${entry.unit} | Atribuído por: ${entry.assignedBy}${entry.sourceRequestCode ? ` | Pedido: ${entry.sourceRequestCode}` : ''}${entry.notes ? ` | Observação: ${entry.notes}` : ''}`]))
       return { title: item.equipment, fields }
     }),

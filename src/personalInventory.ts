@@ -1,4 +1,5 @@
 import type { AppData, AuditCategory, InventoryItem } from './store'
+import { auditItemStatus } from './auditChecklist'
 
 export function personalInventory(data: AppData, personId: string) {
   const totals = new Map<string, number>()
@@ -19,9 +20,11 @@ export function latestItemAudit(data: AppData, personId: string, itemId: string)
 }
 
 export function itemAuditStatus(data: AppData, personId: string, item: InventoryItem) {
-  if (!auditCategoryForItem(item)) return 'Atribuído'
+  const category = auditCategoryForItem(item)
+  if (!category) return 'Atribuído'
+  if (item.category === 'Escada' && item.ladderRestriction) return 'Não liberada'
   const audit = latestItemAudit(data, personId, item.id)
-  return audit ? audit.result.approved ? 'Aprovado' : 'Não aprovado' : 'Não auditado'
+  return audit ? auditItemStatus(category, audit.result.approved) : 'Não auditado'
 }
 
 export function itemIdentifier(data: AppData, personId: string, item: InventoryItem) {

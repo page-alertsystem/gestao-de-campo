@@ -4,6 +4,7 @@ import {
   PackageCheck, RotateCcw, Search, ShieldCheck, Wrench, X,
 } from 'lucide-react'
 import { formatQuantity, type AppData, type StockAssignment } from './store'
+import { auditAnswerLabel, auditItemStatus, auditSummaryStatus } from './auditChecklist'
 
 export type ReportId = 'km' | 'registro-dia' | 'ponto' | 'auditoria' | 'solicitacoes' | 'ferramentas' | 'epis' | 'insumos' | 'baixas' | 'rma' | 'levantamentos'
 type CellValue = string | number
@@ -169,7 +170,7 @@ const reports: ReportDefinition[] = [
       const approved = item.results.filter(result => result.approved).length
       const total = item.results.length
       const percent = total ? Math.round((approved / total) * 100) : 0
-      const status = approved === total && total > 0 ? 'Aprovada' : 'Com ressalvas'
+      const status = auditSummaryStatus(item.category, item.results)
       return {
         id: item.id, date: completed.isoDate, person: item.auditorName, client: '', status,
         values: {
@@ -179,7 +180,7 @@ const reports: ReportDefinition[] = [
         details: [
           { label: 'Pessoa auditada', value: item.auditedName }, { label: 'Início', value: dateParts(item.startedAt).full },
           { label: 'Próxima auditoria', value: declaredDate(item.nextAuditDate) }, { label: 'PDF gerado', value: item.pdfFileName },
-          { label: 'Resultado dos equipamentos', value: item.results.map((result, index) => `${index + 1}. ${result.equipment} (${result.code || 'sem código'}): ${result.approved ? 'Aprovado' : 'Não aprovado'}\nIdentificador atual: ${result.currentIdentifier || result.code || 'Não informado'}\nNovo identificador: ${result.newIdentifier || 'Não informado'}\nObservação: ${result.observation || 'Sem observações'}`).join('\n\n') || 'Nenhum equipamento' },
+          { label: 'Resultado dos equipamentos', value: item.results.map((result, index) => `${index + 1}. ${result.equipment} (${result.code || 'sem código'}): ${auditItemStatus(item.category, result.approved)}\nIdentificador atual: ${result.currentIdentifier || result.code || 'Não informado'}\nNovo identificador: ${result.newIdentifier || 'Não informado'}\nObservação: ${result.observation || 'Sem observações'}${result.restrictionReason ? `\nRestrição: ${result.restrictionReason}` : ''}\n${result.answers.map(answer => `${answer.question}: ${auditAnswerLabel(answer.answer)}`).join('\n')}`).join('\n\n') || 'Nenhum equipamento' },
         ],
       }
     }),
@@ -307,7 +308,8 @@ function filterRows(rows: ReportRow[], filters: Filters) {
 
 function statusTone(value: CellValue) {
   const normalized = String(value).toLocaleLowerCase('pt-BR')
-  if (normalized.includes('resolvid') || normalized.includes('aprovad') || normalized.includes('recebido') || normalized === 'registrado') return 'success'
+  if (normalized === 'não liberada' || normalized === 'não aprovado') return 'danger'
+  if (normalized.includes('resolvid') || normalized.includes('aprovad') || normalized.includes('recebido') || normalized === 'registrado' || normalized === 'liberada') return 'success'
   if (normalized.includes('cancel') || normalized.includes('avaria') || normalized.includes('ressalva') || normalized.includes('danific')) return 'danger'
   return 'warning'
 }

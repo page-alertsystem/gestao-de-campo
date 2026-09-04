@@ -2,9 +2,10 @@ import { ChangeEvent, PointerEvent as ReactPointerEvent, useRef, useState } from
 import { AlertTriangle, CalendarDays, Camera, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, FileDown, ListChecks, PenLine, ShieldCheck, UserCheck, Wrench, X } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import { hasProfile } from './access'
-import type { AppData, AuditCategory, AuditItemResult, AuditRecord, InventoryItem } from './store'
+import type { AppData, AuditAnswer, AuditCategory, AuditItemResult, AuditRecord, InventoryItem } from './store'
 import { publicAsset } from './paths'
-import { auditCategoryForItem, itemIdentifier, personalInventory } from './personalInventory'
+import { auditCategoryForItem, itemAuditStatus, itemIdentifier, personalInventory } from './personalInventory'
+import { auditAnswerIsNegative, auditAnswerLabel, auditItemStatus, auditSummaryStatus, ladderAnswerOptions, ladderBlockedMessage, ladderIsApproved, ladderQuestions } from './auditChecklist'
 
 const commonQuestions = [
   'O item está funcionando corretamente?',
@@ -13,19 +14,6 @@ const commonQuestions = [
   'Existe desgaste que comprometa a segurança?',
   'Precisa de manutenção preventiva ou corretiva?',
   'Está aprovado para continuar em uso?',
-]
-
-const ladderQuestions = [
-  'A identificação e as informações da escada estão legíveis?',
-  'Os degraus estão íntegros, sem trincas, quebras ou deformações?',
-  'Os degraus estão firmes, sem folgas ou movimentos?',
-  'As laterais estão sem rachaduras, empenamentos ou corrosão?',
-  'Os pés antiderrapantes estão completos e em boas condições?',
-  'As travas e articulações abrem e fecham corretamente?',
-  'Parafusos, rebites e demais fixações estão firmes?',
-  'A escada está limpa, sem óleo, graxa ou material escorregadio?',
-  'A escada está sem adaptações ou reparos improvisados?',
-  'A escada está estável, sem tremer, e aprovada para uso seguro?',
 ]
 
 export type AuditStart = { category: AuditCategory; personId: string; personName: string; items: InventoryItem[]; scheduledDate: string; startedAt: string }
@@ -73,7 +61,7 @@ export function AuditPage({ data, allowedCategories, onStart }: { data: AppData;
       <section className="surface audit-person-overview">
         <div className="section-heading"><div><p className="eyebrow">{selectedItems.length} {selectedItems.length === 1 ? 'equipamento' : 'equipamentos'}</p><h3>{category} de {selectedPerson.name}</h3></div><span className="audit-heading-icon"><SelectedIcon size={24} /></span></div>
         <div className="next-audit-summary"><CalendarDays size={20} /><div><span>Auditoria marcada para</span><b>{new Date(`${scheduledDate}T12:00:00`).toLocaleDateString('pt-BR')}</b></div><small>{latest ? 'Data definida automaticamente na auditoria anterior.' : 'Primeira auditoria disponível para iniciar hoje.'}</small></div>
-        <div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Código</th><th>Marca / modelo</th><th>Categoria</th></tr></thead><tbody>{selectedItems.map(item => <tr key={item.id}><td>{item.equipment}</td><td>{item.code || '—'}</td><td>{[item.brand, item.model].filter(Boolean).join(' / ') || '—'}</td><td>{item.category}</td></tr>)}</tbody></table></div>
+        <div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Código</th><th>Marca / modelo</th><th>Categoria</th><th>Status</th></tr></thead><tbody>{selectedItems.map(item => { const status = itemAuditStatus(data, selectedPerson.id, item); return <tr key={item.id}><td>{item.equipment}</td><td>{item.code || '—'}</td><td>{[item.brand, item.model].filter(Boolean).join(' / ') || '—'}</td><td>{item.category}</td><td><span className={`status ${status === 'Não liberada' || status === 'Não aprovado' ? 'danger' : status === 'Não auditado' ? 'warning' : 'success'}`}>{status}</span></td></tr> })}</tbody></table></div>
         <div className="audit-start-row"><p><ClipboardCheck size={17} />Será solicitada uma foto e o checklist completo de cada equipamento.</p><button className="primary-button" onClick={() => onStart({ category, personId: selectedPerson.id, personName: selectedPerson.name, items: selectedItems, scheduledDate, startedAt: new Date().toISOString() })}>Iniciar auditoria <ChevronRight size={18} /></button></div>
       </section>
     </>
@@ -82,22 +70,36 @@ export function AuditPage({ data, allowedCategories, onStart }: { data: AppData;
   return <>
     <section className="page-intro"><div><p className="eyebrow">Gestão de segurança</p><h2>Auditorias</h2><p>Selecione o tipo e entre no usuário para conferir todos os equipamentos vinculados.</p></div></section>
     <section className="audit-category-grid">{categories.map(item => { const Icon = item.icon; return <button className={category === item.id ? 'audit-category-card active' : 'audit-category-card'} key={item.id} onClick={() => setCategory(item.id)}><span><Icon size={23} /></span><div><b>{item.label}</b><small>{item.description}</small></div><ChevronRight size={18} /></button> })}</section>
-    <section className="surface table-surface audit-people-table"><div className="table-toolbar"><div><p className="eyebrow">Pessoas com equipamentos</p><h3>Auditorias de {selected.label}</h3></div><span className="audit-heading-icon"><SelectedIcon size={22} /></span></div><div className="responsive-table"><table><thead><tr><th>Pessoa</th><th>Auditoria</th><th>Data marcada</th><th>Qualidade da última auditoria</th><th>Equipamentos</th><th>Ação</th></tr></thead><tbody>{people.length ? people.map(({ person, items, latest }) => { const approved = latest?.results.filter(result => result.approved).length ?? 0; const quality = !latest ? 'Pendente' : approved === latest.results.length ? 'Aprovada' : 'Com ressalvas'; const date = latest?.nextAuditDate ?? todayDate(); return <tr key={person.id}><td><b>{person.name}</b><small className="table-subtitle">{person.groups.join(', ')}</small></td><td>{category}</td><td>{new Date(`${date}T12:00:00`).toLocaleDateString('pt-BR')}</td><td><span className={`status ${quality === 'Aprovada' ? 'success' : quality === 'Pendente' ? 'warning' : 'danger'}`}>{quality}</span></td><td>{items.length}</td><td><button className="secondary-button compact" onClick={() => setPersonId(person.id)}>Entrar <ChevronRight size={16} /></button></td></tr> }) : <tr><td colSpan={6} className="table-empty">Nenhuma pessoa possui {category.toLowerCase()} aprovados no estoque pessoal.</td></tr>}</tbody></table></div></section>
+    <section className="surface table-surface audit-people-table"><div className="table-toolbar"><div><p className="eyebrow">Pessoas com equipamentos</p><h3>Auditorias de {selected.label}</h3></div><span className="audit-heading-icon"><SelectedIcon size={22} /></span></div><div className="responsive-table"><table><thead><tr><th>Pessoa</th><th>Auditoria</th><th>Data marcada</th><th>Qualidade da última auditoria</th><th>Equipamentos</th><th>Ação</th></tr></thead><tbody>{people.length ? people.map(({ person, items, latest }) => { const quality = category === 'Escadas' && items.some(item => item.ladderRestriction) ? 'Não liberada' : !latest ? 'Pendente' : auditSummaryStatus(category, latest.results); const date = latest?.nextAuditDate ?? todayDate(); return <tr key={person.id}><td><b>{person.name}</b><small className="table-subtitle">{person.groups.join(', ')}</small></td><td>{category}</td><td>{new Date(`${date}T12:00:00`).toLocaleDateString('pt-BR')}</td><td><span className={`status ${quality === 'Aprovada' || quality === 'Liberada' ? 'success' : quality === 'Pendente' ? 'warning' : 'danger'}`}>{quality}</span></td><td>{items.length}</td><td><button className="secondary-button compact" onClick={() => setPersonId(person.id)}>Entrar <ChevronRight size={16} /></button></td></tr> }) : <tr><td colSpan={6} className="table-empty">Nenhuma pessoa possui {category.toLowerCase()} aprovados no estoque pessoal.</td></tr>}</tbody></table></div></section>
   </>
 }
 
-export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppData; start: AuditStart; onCancel: () => void; onComplete: (audit: AuditRecord) => void }) {
+export function AuditWizard({ data, start, onCancel, onComplete, onBlockLadder }: { data: AppData; start: AuditStart; onCancel: () => void; onComplete: (audit: AuditRecord) => void; onBlockLadder: (itemId: string, personId: string, question: string) => void }) {
   const [index, setIndex] = useState(0)
   const [results, setResults] = useState<AuditItemResult[]>([])
-  const [answers, setAnswers] = useState<Record<number, boolean>>({})
+  const [answers, setAnswers] = useState<Record<number, AuditAnswer>>({})
+  const [blockedNotice, setBlockedNotice] = useState<string | null>(null)
+  const [blockedItems, setBlockedItems] = useState<Set<string>>(() => new Set())
   const [photo, setPhoto] = useState('')
   const [currentIdentifier, setCurrentIdentifier] = useState(() => itemIdentifier(data, start.personId, start.items[0]))
   const [newIdentifier, setNewIdentifier] = useState('')
   const [observation, setObservation] = useState('')
   const [closingResults, setClosingResults] = useState<AuditItemResult[] | null>(null)
   const item = start.items[index]
-  const questions = start.category === 'Escadas' ? ladderQuestions : commonQuestions
+  const isLadder = start.category === 'Escadas'
+  const restriction = data.inventory.find(entry => entry.id === item.id)?.ladderRestriction
+  const restricted = Boolean(restriction) || blockedItems.has(item.id)
+  const questions = isLadder ? ladderQuestions : commonQuestions
   const complete = Object.keys(answers).length === questions.length && Boolean(photo)
+
+  const chooseAnswer = (questionIndex: number, answer: AuditAnswer) => {
+    setAnswers(current => ({ ...current, [questionIndex]: answer }))
+    if (isLadder && answer === 'Não conforme') {
+      setBlockedItems(current => new Set([...current, item.id]))
+      setBlockedNotice(questions[questionIndex])
+      onBlockLadder(item.id, start.personId, questions[questionIndex])
+    }
+  }
 
   const choosePhoto = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -109,7 +111,7 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
 
   const next = () => {
     if (!complete) return
-    const result: AuditItemResult = { inventoryItemId: item.id, equipment: item.equipment, code: item.code, currentIdentifier: currentIdentifier.trim(), newIdentifier: newIdentifier.trim(), observation: observation.trim(), answers: questions.map((question, questionIndex) => ({ question, answer: answers[questionIndex] })), photo, approved: answers[questions.length - 1] === true }
+    const result: AuditItemResult = { inventoryItemId: item.id, equipment: item.equipment, code: item.code, currentIdentifier: currentIdentifier.trim(), newIdentifier: newIdentifier.trim(), observation: observation.trim(), restrictionReason: isLadder && restricted ? `${ladderBlockedMessage}\n${restriction?.questions.join('\n') ?? ''}` : undefined, answers: questions.map((question, questionIndex) => ({ question, answer: answers[questionIndex] })), photo, approved: isLadder ? ladderIsApproved(answers, restricted) : answers[questions.length - 1] === true }
     const nextResults = [...results, result]
     if (index === start.items.length - 1) {
       setClosingResults(nextResults)
@@ -120,14 +122,16 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
   }
 
   if (closingResults) return <AuditSigning data={data} start={start} results={closingResults} onCancel={onCancel} onComplete={onComplete} />
+  if (blockedNotice) return <div className="full-screen-layer ladder-block-screen" role="alertdialog" aria-modal="true" aria-labelledby="ladder-block-title" aria-describedby="ladder-block-description"><section className="surface"><AlertTriangle size={56} /><h2 id="ladder-block-title">Escada não liberada</h2><p id="ladder-block-description">Favor entrar em contato com seu gestor e solicitar a substituição.</p><b>{item.equipment} · {itemIdentifier(data, start.personId, item)}</b><p className="ladder-block-question">Item não conforme: {blockedNotice}</p><small>A escada ficará como “Não liberada”, mesmo se você fechar a auditoria. Continue o registro para documentar as demais condições, a foto e a assinatura.</small><div><button className="primary-button" autoFocus onClick={() => setBlockedNotice(null)}>Entendi, continuar registro</button><button className="secondary-button" onClick={onCancel}>Fechar auditoria</button></div></section></div>
 
   return <div className="full-screen-layer audit-wizard-layer">
     <header className="form-page-header"><div><p className="eyebrow">Auditoria de {start.category} · {start.personName}</p><h2>{item.equipment}</h2><p>Item {index + 1} de {start.items.length} · código {item.code || 'não informado'}</p></div><button className="icon-button" onClick={onCancel} aria-label="Fechar auditoria"><X size={22} /></button></header>
     <div className="audit-progress"><span style={{ width: `${((index + 1) / start.items.length) * 100}%` }} /></div>
     <main className="audit-wizard-content">
       <section className="surface audit-item-info"><div><span>Equipamento</span><b>{item.equipment}</b></div><div><span>Marca / modelo</span><b>{[item.brand, item.model].filter(Boolean).join(' / ') || 'Não informado'}</b></div><div><span>Pessoa auditada</span><b>{start.personName}</b></div></section>
+      {isLadder && restricted && <div className="ladder-restriction-banner" role="status"><AlertTriangle size={22} /><p>{ladderBlockedMessage}</p></div>}
       <section className="surface audit-identifiers"><div className="section-heading"><div><p className="eyebrow">Identificação do equipamento</p><h3>Identificadores e observação</h3></div></div><div className="form-grid"><label>Identificador atual<input type="text" maxLength={120} value={currentIdentifier} onChange={event => setCurrentIdentifier(event.target.value)} placeholder="Texto ou identificação atual" /></label><label>Novo identificador (opcional)<input type="text" maxLength={120} value={newIdentifier} onChange={event => setNewIdentifier(event.target.value)} placeholder="Preencha se houver uma nova identificação" /></label><label className="full">Observação do equipamento (opcional)<textarea rows={2} maxLength={500} value={observation} onChange={event => setObservation(event.target.value)} placeholder="Uma breve observação sobre este equipamento" /></label></div></section>
-      <section className="surface audit-checklist"><div className="section-heading"><div><p className="eyebrow">Checklist obrigatório</p><h3>Condições do equipamento</h3></div><ListChecks size={22} /></div>{questions.map((question, questionIndex) => <div className="audit-question" key={question}><p><b>{questionIndex + 1}.</b> {question}</p><div><button className={answers[questionIndex] === true ? 'answer-button yes active' : 'answer-button yes'} onClick={() => setAnswers({ ...answers, [questionIndex]: true })}>Sim</button><button className={answers[questionIndex] === false ? 'answer-button no active' : 'answer-button no'} onClick={() => setAnswers({ ...answers, [questionIndex]: false })}>Não</button></div></div>)}</section>
+      <section className="surface audit-checklist"><div className="section-heading"><div><p className="eyebrow">Checklist obrigatório</p><h3>Condições do equipamento</h3></div><ListChecks size={22} /></div>{isLadder && <p className="table-subtitle">Marque “Não aplicável” somente quando a condição não se aplicar a esta escada. Qualquer item “Não conforme” impede a liberação.</p>}{questions.map((question, questionIndex) => <div className={isLadder ? 'audit-question ladder-question' : 'audit-question'} key={question}><p><b>{questionIndex + 1}.</b> {question}</p><div>{isLadder ? ladderAnswerOptions.map(answer => <button key={answer} aria-pressed={answers[questionIndex] === answer} className={`answer-button ${answer === 'Conforme' ? 'yes' : answer === 'Não conforme' ? 'no' : 'not-applicable'}${answers[questionIndex] === answer ? ' active' : ''}`} onClick={() => chooseAnswer(questionIndex, answer)}>{answer}</button>) : <><button className={answers[questionIndex] === true ? 'answer-button yes active' : 'answer-button yes'} onClick={() => chooseAnswer(questionIndex, true)}>Sim</button><button className={answers[questionIndex] === false ? 'answer-button no active' : 'answer-button no'} onClick={() => chooseAnswer(questionIndex, false)}>Não</button></>}</div></div>)}</section>
       <section className="surface audit-photo-section"><div className="section-heading"><div><p className="eyebrow">Evidência obrigatória</p><h3>Foto do equipamento</h3></div><Camera size={22} /></div><label className={photo ? 'audit-photo-field filled' : 'audit-photo-field'}><Camera size={28} /><b>{photo ? 'Foto adicionada' : 'Abrir câmera'}</b><small>{photo ? 'Toque para substituir a foto' : 'Registre a condição atual do equipamento'}</small><input key={item.id} type="file" accept="image/*" capture="environment" onChange={choosePhoto} /></label>{photo && <img className="audit-photo-preview" src={photo} alt={`Registro de ${item.equipment}`} />}</section>
     </main>
     <footer className="audit-wizard-footer"><button className="secondary-button" disabled={index === 0} onClick={() => { const previous = results[index - 1]; if (!previous) return; setIndex(current => current - 1); setResults(current => current.slice(0, -1)); setAnswers(Object.fromEntries(previous.answers.map((answer, answerIndex) => [answerIndex, answer.answer]))); setPhoto(previous.photo); setCurrentIdentifier(previous.currentIdentifier ?? previous.code); setNewIdentifier(previous.newIdentifier ?? ''); setObservation(previous.observation ?? '') }}><ChevronLeft size={18} /> Anterior</button><p>{Object.keys(answers).length} de {questions.length} respostas · {photo ? 'foto pronta' : 'foto pendente'}</p><button className="primary-button" disabled={!complete} onClick={next}>{index === start.items.length - 1 ? <><PenLine size={18} /> Continuar para assinatura</> : <>Próximo equipamento <ChevronRight size={18} /></>}</button></footer>
@@ -168,7 +172,7 @@ function AuditSigning({ data, start, results, onCancel, onComplete }: { data: Ap
   return <div className="full-screen-layer audit-signing-layer">
     <header className="form-page-header"><div><p className="eyebrow">Etapa final</p><h2>Assinaturas da auditoria</h2><p>{start.category} · {start.personName}</p></div><button className="icon-button" onClick={onCancel} aria-label="Cancelar auditoria"><X size={22} /></button></header>
     <main className="audit-signing-content">
-      <section className="surface audit-signing-summary"><div className="section-heading"><div><p className="eyebrow">Resumo</p><h3>Auditoria pronta para finalizar</h3></div><CheckCircle2 size={23} /></div><div className="audit-parties"><div><span>Responsável</span><b>{data.account.name}</b></div><div><span>Pessoa auditada</span><b>{start.personName}</b></div><div><span>Equipamentos</span><b>{results.length}</b></div><div><span>Resultado</span><b>{results.every(result => result.approved) ? 'Aprovada' : 'Com ressalvas'}</b></div></div></section>
+      <section className="surface audit-signing-summary"><div className="section-heading"><div><p className="eyebrow">Resumo</p><h3>Auditoria pronta para finalizar</h3></div><CheckCircle2 size={23} /></div><div className="audit-parties"><div><span>Responsável</span><b>{data.account.name}</b></div><div><span>Pessoa auditada</span><b>{start.personName}</b></div><div><span>Equipamentos</span><b>{results.length}</b></div><div><span>Resultado</span><b>{auditSummaryStatus(start.category, results)}</b></div></div>{start.category === 'Escadas' && results.some(result => !result.approved) && <p className="ladder-restriction-banner">{ladderBlockedMessage}</p>}</section>
       <section className="surface signature-selector-card"><div className="section-heading"><div><p className="eyebrow">Assinatura obrigatória</p><h3>{selfAudit ? 'Assinatura do técnico' : 'Assinaturas dos responsáveis'}</h3></div><PenLine size={22} /></div>
         <button className={auditorSignature ? 'signature-select registered' : 'signature-select'} onClick={() => setActiveSigner('auditor')}><span>{selfAudit ? <UserCheck size={22} /> : <PenLine size={22} />}</span><div><b>{selfAudit ? start.personName : data.account.name}</b><small>{selfAudit ? 'Técnico responsável pela autoauditoria' : 'Responsável pela auditoria'}</small></div><strong>{auditorSignature ? 'Assinatura registrada' : 'Toque para assinar'}</strong><ChevronRight size={18} /></button>
         {!selfAudit && <button className={auditedSignature ? 'signature-select registered' : 'signature-select'} onClick={() => setActiveSigner('audited')}><span><UserCheck size={22} /></span><div><b>{start.personName}</b><small>Pessoa auditada</small></div><strong>{auditedSignature ? 'Assinatura registrada' : 'Toque para assinar'}</strong><ChevronRight size={18} /></button>}
@@ -215,13 +219,14 @@ async function createAuditPdf(record: AuditRecord, responsibleSignature: string,
   }
 
   const approved = record.results.filter(result => result.approved).length
+  const resultStatus = auditSummaryStatus(record.category, record.results)
   header(`Relatório de Auditoria de ${record.category}`, 'GIO — Gestão Integrada de Operações')
   const summary = [
     ['Auditor', record.auditorName], ['Pessoa auditada', record.auditedName],
     ['Data agendada', record.scheduledDate ? new Date(`${record.scheduledDate}T12:00:00`).toLocaleDateString('pt-BR') : 'Não registrado'],
     ['Início', new Date(record.startedAt).toLocaleString('pt-BR')], ['Conclusão', new Date(record.completedAt).toLocaleString('pt-BR')],
     ['Próxima auditoria', new Date(`${record.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR')],
-    ['Resultado geral', approved === record.results.length ? 'Aprovada' : 'Com ressalvas'],
+    ['Resultado geral', resultStatus],
     ['Equipamentos aprovados', `${approved} de ${record.results.length}`],
   ]
   let y = 66
@@ -232,25 +237,33 @@ async function createAuditPdf(record: AuditRecord, responsibleSignature: string,
   record.results.forEach((result, index) => {
     if (y > 276) { pdf.addPage(); header('Resumo dos equipamentos', `${record.auditedName} · continuação`); y = 65 }
     pdf.setFontSize(9); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(48, 51, 54); pdf.text(`${index + 1}. ${result.equipment}`, 15, y)
-    pdf.setFont('helvetica', 'normal'); pdf.setTextColor(result.approved ? 35 : 157, result.approved ? 107 : 51, result.approved ? 58 : 46); pdf.text(result.approved ? 'APROVADO' : 'NÃO APROVADO', 155, y); y += 8
+    pdf.setFont('helvetica', 'normal'); pdf.setTextColor(result.approved ? 35 : 157, result.approved ? 107 : 51, result.approved ? 58 : 46); pdf.text(auditItemStatus(record.category, result.approved).toUpperCase(), 155, y); y += 8
   })
 
   record.results.forEach((result, itemIndex) => {
-    pdf.addPage(); header(`${itemIndex + 1}. ${result.equipment}`, `Código ${result.code || 'não informado'} · ${result.approved ? 'Aprovado' : 'Não aprovado'}`)
+    const isLadder = record.category === 'Escadas'
+    const itemTitle = `${itemIndex + 1}. ${result.equipment}`
+    const itemSubtitle = `Código ${result.code || 'não informado'} · ${auditItemStatus(record.category, result.approved)}`
+    pdf.addPage(); header(itemTitle, itemSubtitle)
     let questionY = 65
-    pdf.setFontSize(8)
     result.answers.forEach((answer, answerIndex) => {
-      const lines = pdf.splitTextToSize(`${answerIndex + 1}. ${answer.question}`, 92) as string[]
+      pdf.setFontSize(8); pdf.setFont('helvetica', 'normal')
+      const lines = pdf.splitTextToSize(`${answerIndex + 1}. ${answer.question}`, isLadder ? 130 : 88) as string[]
+      const height = Math.max(10, lines.length * 4 + 4)
+      if (questionY + height > 275) { pdf.addPage(); header(itemTitle, `${itemSubtitle} · continuação`); questionY = 65; pdf.setFontSize(8) }
       pdf.setFont('helvetica', 'normal'); pdf.setTextColor(55, 58, 60); pdf.text(lines, 15, questionY)
-      pdf.setFont('helvetica', 'bold'); pdf.setTextColor(answer.answer ? 35 : 157, answer.answer ? 107 : 51, answer.answer ? 58 : 46); pdf.text(answer.answer ? 'SIM' : 'NÃO', 106, questionY)
-      questionY += Math.max(9, lines.length * 4 + 4)
+      const negative = auditAnswerIsNegative(answer.answer)
+      const neutral = answer.answer === 'Não aplicável'
+      pdf.setFont('helvetica', 'bold'); pdf.setTextColor(neutral ? 90 : negative ? 157 : 35, neutral ? 90 : negative ? 51 : 107, neutral ? 90 : negative ? 46 : 58); pdf.text(auditAnswerLabel(answer.answer).toUpperCase(), isLadder ? 154 : 106, questionY)
+      questionY += height
     })
-    if (result.photo) {
+    if (result.photo && !isLadder) {
       pdf.setFont('helvetica', 'bold'); pdf.setTextColor(70, 73, 76); pdf.text('Evidência fotográfica', 121, 64)
       addContainedImage(pdf, result.photo, 121, 70, 74, 82)
     }
-    let detailY = Math.max(questionY + 7, 166)
+    let detailY = isLadder ? questionY + 7 : Math.max(questionY + 7, 166)
     const details = [['Identificador atual', result.currentIdentifier || result.code || 'Não informado'], ['Novo identificador', result.newIdentifier || 'Não informado'], ['Observação', result.observation || 'Sem observações']]
+    if (result.restrictionReason) details.push(['Restrição de uso', result.restrictionReason])
     details.forEach(([label, value]) => {
       pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9); pdf.setTextColor(55, 58, 60)
       const lines = pdf.splitTextToSize(`${label}: ${value}`, 180) as string[]
@@ -260,10 +273,15 @@ async function createAuditPdf(record: AuditRecord, responsibleSignature: string,
       })
       detailY += 3
     })
+    if (result.photo && isLadder) {
+      if (detailY + 84 > 278) { pdf.addPage(); header('Evidência fotográfica', itemTitle); detailY = 65 }
+      pdf.setFontSize(9); pdf.setFont('helvetica', 'bold'); pdf.text('Foto da escada', 15, detailY)
+      addContainedImage(pdf, result.photo, 15, detailY + 6, 100, 74)
+    }
   })
 
   pdf.addPage(); header('Conclusão da auditoria', `${record.category} · ${record.auditedName}`)
-  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.setTextColor(55, 58, 60); pdf.text(`Resultado: ${approved === record.results.length ? 'APROVADA' : 'COM RESSALVAS'}`, 15, 68)
+  pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.setTextColor(55, 58, 60); pdf.text(`Resultado: ${resultStatus.toUpperCase()}`, 15, 68)
   pdf.setFontSize(10); pdf.text(`Auditor responsável: ${record.auditorName}`, 15, 82)
   pdf.text(`Pessoa auditada: ${record.auditedName}`, 15, 93)
   pdf.text(`Equipamentos aprovados: ${approved} de ${record.results.length}`, 15, 104)
@@ -272,6 +290,7 @@ async function createAuditPdf(record: AuditRecord, responsibleSignature: string,
   pdf.addImage(responsibleSignature, 'PNG', 15, 143, 78, 28); pdf.setDrawColor(120, 124, 126); pdf.line(15, 173, 93, 173)
   if (auditedSignature) { pdf.text(`Assinatura da pessoa auditada: ${record.auditedName}`, 108, 137); pdf.addImage(auditedSignature, 'PNG', 108, 143, 78, 28); pdf.line(108, 173, 186, 173) }
   pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(112, 117, 122); pdf.text(`Documento gerado em ${new Date(record.completedAt).toLocaleString('pt-BR')}.`, 15, 190)
+  if (record.category === 'Escadas' && record.results.some(result => !result.approved)) { pdf.setFontSize(10); pdf.setTextColor(157, 51, 46); pdf.text(pdf.splitTextToSize(ladderBlockedMessage, 180), 15, 205) }
   const pdfData = pdf.output('datauristring')
   pdf.save(record.pdfFileName)
   return pdfData
