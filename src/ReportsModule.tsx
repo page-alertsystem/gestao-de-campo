@@ -179,7 +179,7 @@ const reports: ReportDefinition[] = [
         details: [
           { label: 'Pessoa auditada', value: item.auditedName }, { label: 'Início', value: dateParts(item.startedAt).full },
           { label: 'Próxima auditoria', value: declaredDate(item.nextAuditDate) }, { label: 'PDF gerado', value: item.pdfFileName },
-          { label: 'Resultado dos equipamentos', value: item.results.map((result, index) => `${index + 1}. ${result.equipment} (${result.code || 'sem código'}): ${result.approved ? 'Aprovado' : 'Não aprovado'}`).join('\n') || 'Nenhum equipamento' },
+          { label: 'Resultado dos equipamentos', value: item.results.map((result, index) => `${index + 1}. ${result.equipment} (${result.code || 'sem código'}): ${result.approved ? 'Aprovado' : 'Não aprovado'}\nIdentificador atual: ${result.currentIdentifier || result.code || 'Não informado'}\nNovo identificador: ${result.newIdentifier || 'Não informado'}\nObservação: ${result.observation || 'Sem observações'}`).join('\n\n') || 'Nenhum equipamento' },
         ],
       }
     }),
@@ -269,7 +269,7 @@ const reports: ReportDefinition[] = [
     id: 'levantamentos', label: 'Levantamentos', icon: FileBarChart,
     columns: [
       ['ticket', 'Ticket Movidesk'], ['codigo', 'Código GIO'], ['cliente', 'Cliente'], ['solicitante', 'Solicitante'],
-      ['area', 'Área'], ['inicio', 'Data inicial'], ['fim', 'Data final'], ['registro', 'Data do registro'], ['status', 'Status'],
+      ['area', 'Área'], ['inicio', 'Prazo inicial'], ['fim', 'Prazo final'], ['registro', 'Data do registro'], ['status', 'Status'],
     ].map(([key, label]) => ({ key, label })),
     rows: data => data.surveyRequests.map(item => {
       const created = dateParts(item.createdAt)

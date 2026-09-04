@@ -4,6 +4,7 @@ import { jsPDF } from 'jspdf'
 import { hasProfile } from './access'
 import type { AppData, AuditCategory, AuditItemResult, AuditRecord, InventoryItem } from './store'
 import { publicAsset } from './paths'
+import { auditCategoryForItem, itemIdentifier, personalInventory } from './personalInventory'
 
 const commonQuestions = [
   'O item está funcionando corretamente?',
@@ -30,13 +31,7 @@ const ladderQuestions = [
 export type AuditStart = { category: AuditCategory; personId: string; personName: string; items: InventoryItem[]; scheduledDate: string; startedAt: string }
 
 function itemsForAudit(data: AppData, category: AuditCategory, personId: string) {
-  const totals = new Map<string, number>()
-  data.stockAssignments.filter(item => item.personId === personId && item.status === 'Aprovado e retirado').forEach(item => totals.set(item.inventoryItemId, (totals.get(item.inventoryItemId) ?? 0) + item.quantity))
-  data.materialUsages.filter(item => item.personId === personId && item.workflowStatus !== 'Cancelado').forEach(item => totals.set(item.inventoryItemId, (totals.get(item.inventoryItemId) ?? 0) - item.quantity))
-  return data.inventory.filter(item => {
-    const matches = category === 'Ferramentas' ? item.category.includes('Ferramenta') : category === 'EPIs' ? item.category === 'EPI' : item.category === 'Escada'
-    return matches && (totals.get(item.id) ?? 0) > 0
-  })
+  return personalInventory(data, personId).filter(item => auditCategoryForItem(item) === category)
 }
 
 function todayDate() { return new Date().toISOString().slice(0, 10) }
@@ -96,6 +91,9 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
   const [results, setResults] = useState<AuditItemResult[]>([])
   const [answers, setAnswers] = useState<Record<number, boolean>>({})
   const [photo, setPhoto] = useState('')
+  const [currentIdentifier, setCurrentIdentifier] = useState(() => itemIdentifier(data, start.personId, start.items[0]))
+  const [newIdentifier, setNewIdentifier] = useState('')
+  const [observation, setObservation] = useState('')
   const [closingResults, setClosingResults] = useState<AuditItemResult[] | null>(null)
   const item = start.items[index]
   const questions = start.category === 'Escadas' ? ladderQuestions : commonQuestions
@@ -111,13 +109,14 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
 
   const next = () => {
     if (!complete) return
-    const result: AuditItemResult = { inventoryItemId: item.id, equipment: item.equipment, code: item.code, answers: questions.map((question, questionIndex) => ({ question, answer: answers[questionIndex] })), photo, approved: answers[questions.length - 1] === true }
+    const result: AuditItemResult = { inventoryItemId: item.id, equipment: item.equipment, code: item.code, currentIdentifier: currentIdentifier.trim(), newIdentifier: newIdentifier.trim(), observation: observation.trim(), answers: questions.map((question, questionIndex) => ({ question, answer: answers[questionIndex] })), photo, approved: answers[questions.length - 1] === true }
     const nextResults = [...results, result]
     if (index === start.items.length - 1) {
       setClosingResults(nextResults)
       return
     }
     setResults(nextResults); setIndex(current => current + 1); setAnswers({}); setPhoto('')
+    setCurrentIdentifier(itemIdentifier(data, start.personId, start.items[index + 1])); setNewIdentifier(''); setObservation('')
   }
 
   if (closingResults) return <AuditSigning data={data} start={start} results={closingResults} onCancel={onCancel} onComplete={onComplete} />
@@ -127,10 +126,11 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
     <div className="audit-progress"><span style={{ width: `${((index + 1) / start.items.length) * 100}%` }} /></div>
     <main className="audit-wizard-content">
       <section className="surface audit-item-info"><div><span>Equipamento</span><b>{item.equipment}</b></div><div><span>Marca / modelo</span><b>{[item.brand, item.model].filter(Boolean).join(' / ') || 'Não informado'}</b></div><div><span>Pessoa auditada</span><b>{start.personName}</b></div></section>
+      <section className="surface audit-identifiers"><div className="section-heading"><div><p className="eyebrow">Identificação do equipamento</p><h3>Identificadores e observação</h3></div></div><div className="form-grid"><label>Identificador atual<input type="text" maxLength={120} value={currentIdentifier} onChange={event => setCurrentIdentifier(event.target.value)} placeholder="Texto ou identificação atual" /></label><label>Novo identificador (opcional)<input type="text" maxLength={120} value={newIdentifier} onChange={event => setNewIdentifier(event.target.value)} placeholder="Preencha se houver uma nova identificação" /></label><label className="full">Observação do equipamento (opcional)<textarea rows={2} maxLength={500} value={observation} onChange={event => setObservation(event.target.value)} placeholder="Uma breve observação sobre este equipamento" /></label></div></section>
       <section className="surface audit-checklist"><div className="section-heading"><div><p className="eyebrow">Checklist obrigatório</p><h3>Condições do equipamento</h3></div><ListChecks size={22} /></div>{questions.map((question, questionIndex) => <div className="audit-question" key={question}><p><b>{questionIndex + 1}.</b> {question}</p><div><button className={answers[questionIndex] === true ? 'answer-button yes active' : 'answer-button yes'} onClick={() => setAnswers({ ...answers, [questionIndex]: true })}>Sim</button><button className={answers[questionIndex] === false ? 'answer-button no active' : 'answer-button no'} onClick={() => setAnswers({ ...answers, [questionIndex]: false })}>Não</button></div></div>)}</section>
-      <section className="surface audit-photo-section"><div className="section-heading"><div><p className="eyebrow">Evidência obrigatória</p><h3>Foto do equipamento</h3></div><Camera size={22} /></div><label className={photo ? 'audit-photo-field filled' : 'audit-photo-field'}><Camera size={28} /><b>{photo ? 'Foto adicionada' : 'Abrir câmera'}</b><small>{photo ? 'Toque para substituir a foto' : 'Registre a condição atual do equipamento'}</small><input type="file" accept="image/*" capture="environment" onChange={choosePhoto} /></label>{photo && <img className="audit-photo-preview" src={photo} alt={`Registro de ${item.equipment}`} />}</section>
+      <section className="surface audit-photo-section"><div className="section-heading"><div><p className="eyebrow">Evidência obrigatória</p><h3>Foto do equipamento</h3></div><Camera size={22} /></div><label className={photo ? 'audit-photo-field filled' : 'audit-photo-field'}><Camera size={28} /><b>{photo ? 'Foto adicionada' : 'Abrir câmera'}</b><small>{photo ? 'Toque para substituir a foto' : 'Registre a condição atual do equipamento'}</small><input key={item.id} type="file" accept="image/*" capture="environment" onChange={choosePhoto} /></label>{photo && <img className="audit-photo-preview" src={photo} alt={`Registro de ${item.equipment}`} />}</section>
     </main>
-    <footer className="audit-wizard-footer"><button className="secondary-button" disabled={index === 0} onClick={() => { const previous = results[index - 1]; if (!previous) return; setIndex(current => current - 1); setResults(current => current.slice(0, -1)); setAnswers(Object.fromEntries(previous.answers.map((answer, answerIndex) => [answerIndex, answer.answer]))); setPhoto(previous.photo) }}><ChevronLeft size={18} /> Anterior</button><p>{Object.keys(answers).length} de {questions.length} respostas · {photo ? 'foto pronta' : 'foto pendente'}</p><button className="primary-button" disabled={!complete} onClick={next}>{index === start.items.length - 1 ? <><PenLine size={18} /> Continuar para assinatura</> : <>Próximo equipamento <ChevronRight size={18} /></>}</button></footer>
+    <footer className="audit-wizard-footer"><button className="secondary-button" disabled={index === 0} onClick={() => { const previous = results[index - 1]; if (!previous) return; setIndex(current => current - 1); setResults(current => current.slice(0, -1)); setAnswers(Object.fromEntries(previous.answers.map((answer, answerIndex) => [answerIndex, answer.answer]))); setPhoto(previous.photo); setCurrentIdentifier(previous.currentIdentifier ?? previous.code); setNewIdentifier(previous.newIdentifier ?? ''); setObservation(previous.observation ?? '') }}><ChevronLeft size={18} /> Anterior</button><p>{Object.keys(answers).length} de {questions.length} respostas · {photo ? 'foto pronta' : 'foto pendente'}</p><button className="primary-button" disabled={!complete} onClick={next}>{index === start.items.length - 1 ? <><PenLine size={18} /> Continuar para assinatura</> : <>Próximo equipamento <ChevronRight size={18} /></>}</button></footer>
   </div>
 }
 
@@ -226,7 +226,7 @@ async function createAuditPdf(record: AuditRecord, responsibleSignature: string,
   ]
   let y = 66
   pdf.setFontSize(10)
-  summary.forEach(([label, value]) => { pdf.setFont('helvetica', 'bold'); pdf.setTextColor(70, 73, 76); pdf.text(`${label}:`, 15, y); pdf.setFont('helvetica', 'normal'); pdf.text(value, 57, y); y += 9 })
+  summary.forEach(([label, value]) => { pdf.setFont('helvetica', 'bold'); pdf.setTextColor(70, 73, 76); pdf.text(`${label}:`, 15, y); pdf.setFont('helvetica', 'normal'); const lines = pdf.splitTextToSize(value, 120) as string[]; pdf.text(lines, 75, y); y += Math.max(9, lines.length * 4.5 + 3) })
   y += 5
   pdf.setFont('helvetica', 'bold'); pdf.setFontSize(11); pdf.text('Resumo dos equipamentos', 15, y); y += 8
   record.results.forEach((result, index) => {
@@ -249,6 +249,17 @@ async function createAuditPdf(record: AuditRecord, responsibleSignature: string,
       pdf.setFont('helvetica', 'bold'); pdf.setTextColor(70, 73, 76); pdf.text('Evidência fotográfica', 121, 64)
       addContainedImage(pdf, result.photo, 121, 70, 74, 82)
     }
+    let detailY = Math.max(questionY + 7, 166)
+    const details = [['Identificador atual', result.currentIdentifier || result.code || 'Não informado'], ['Novo identificador', result.newIdentifier || 'Não informado'], ['Observação', result.observation || 'Sem observações']]
+    details.forEach(([label, value]) => {
+      pdf.setFont('helvetica', 'normal'); pdf.setFontSize(9); pdf.setTextColor(55, 58, 60)
+      const lines = pdf.splitTextToSize(`${label}: ${value}`, 180) as string[]
+      lines.forEach(line => {
+        if (detailY > 278) { pdf.addPage(); header('Identificação e observação', result.equipment); detailY = 65; pdf.setFontSize(9); pdf.setTextColor(55, 58, 60) }
+        pdf.text(line, 15, detailY); detailY += 4.5
+      })
+      detailY += 3
+    })
   })
 
   pdf.addPage(); header('Conclusão da auditoria', `${record.category} · ${record.auditedName}`)

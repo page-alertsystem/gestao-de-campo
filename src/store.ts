@@ -71,7 +71,7 @@ export type MaterialUsage = {
   processedBy?: string
 }
 export type AuditCategory = 'Ferramentas' | 'EPIs' | 'Escadas'
-export type AuditItemResult = { inventoryItemId: string; equipment: string; code: string; answers: { question: string; answer: boolean }[]; photo: string; approved: boolean }
+export type AuditItemResult = { inventoryItemId: string; equipment: string; code: string; currentIdentifier?: string; newIdentifier?: string; observation?: string; answers: { question: string; answer: boolean }[]; photo: string; approved: boolean }
 export type AuditRecord = { id: string; personId: string; category: AuditCategory; auditorName: string; auditedName: string; scheduledDate?: string; nextAuditDate: string; startedAt: string; completedAt: string; pdfFileName: string; pdfData?: string; pdfStorageKey?: string; results: AuditItemResult[] }
 export type Notification = { id: string; title: string; detail: string; createdAt: string; read: boolean; critical: boolean }
 export type AdminAccount = { id: string; name: string; email: string; passwordHash: string; mustChangePassword: boolean }

@@ -2,7 +2,7 @@ import { FormEvent, type ComponentType, type ReactNode, useEffect, useMemo, useS
 import {
   AlertTriangle, Bell, Boxes, CalendarClock, CarFront, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck, ClipboardList,
   Download, FileBarChart, FolderOpen, Home, LogOut, MapPin, Menu, PackageCheck, Plus, Route,
-  Search, Settings, ShieldCheck, Signal, SignalZero, Users, Warehouse, Wrench, X,
+  Printer, Search, Settings, ShieldCheck, Signal, SignalZero, Users, Warehouse, Wrench, X,
 } from 'lucide-react'
 import { KmForm } from './KmForm'
 import { StockRequestForm } from './StockRequestForm'
@@ -19,6 +19,9 @@ import { allowedPagesForProfiles, hasProfile, normalizeProfiles, profileDescript
 import { accountFromPerson, formatQuantity, hashPassword, loadAppData, normalizeAppData, saveAppData, type AppData, type InventoryItem, type StockRequest } from './store'
 import { clearServerSession, initializeCentralData, loginCentralServer, saveCentralData } from './serverApi'
 import { publicAsset } from './paths'
+import { itemAuditStatus, itemIdentifier, latestItemAudit, personalInventory, upcomingPersonalAudits } from './personalInventory'
+import { inventoryPrintDocument, type PrintDocument } from './inventoryPrint'
+import { PrintDialog } from './PrintDialog'
 
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; formOpenedAt: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
@@ -124,7 +127,6 @@ export default function App() {
   const [toast, setToast] = useState('')
   const [pendingSync, setPendingSync] = useState(0)
   const [surveySyncTick, setSurveySyncTick] = useState(0)
-  const [activities, setActivities] = useState<{ title: string; detail: string; tone: string }[]>([])
 
   useEffect(() => {
     loadAppData().then(async stored => {
@@ -136,7 +138,6 @@ export default function App() {
       }
       setData(ready)
       void saveAppData(ready)
-      setActivities(ready.trajectories.slice(-5).reverse().map(item => ({ title: item.type, detail: `${item.client || 'Sem cliente'} · ${item.declaredTime}`, tone: item.type === 'Esqueci meu ponto' ? 'warning' : 'success' })))
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [])
@@ -217,7 +218,6 @@ export default function App() {
   }
 
   const register = (record: QuickRecord) => {
-    setActivities(current => [{ title: record.action, detail: record.summary, tone: record.action === 'Esqueci meu ponto' ? 'warning' : 'success' }, ...current])
     if (!online) setPendingSync(current => current + 1)
     setActiveAction(null)
     showToast(online ? 'Registro realizado com sucesso.' : 'Registro salvo neste celular e aguardando internet.')
@@ -397,7 +397,7 @@ export default function App() {
 
       <main className="page-content">
         {toast && <div className="toast" role="status"><CheckCircle2 size={19} />{toast}</div>}
-        {visiblePage === 'inicio' && <Dashboard data={data} activities={activities} allowedPages={allowedPages} profiles={currentProfiles} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} onRequest={() => setRequestOpen(true)} />}
+        {visiblePage === 'inicio' && <Dashboard data={data} allowedPages={allowedPages} profiles={currentProfiles} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} onRequest={() => setRequestOpen(true)} />}
         {isOperationPage(visiblePage) && <OperationPage section={visiblePage} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
         {visiblePage === 'gestao-auditoria' && <AuditPage data={data} allowedCategories={canAuditAll ? ['Ferramentas', 'EPIs', 'Escadas'] : ['Escadas']} onStart={setActiveAudit} />}
         {visiblePage === 'gestao-solicitacoes' && <StockRequestsPage data={data} onNewRequest={() => setRequestOpen(true)} />}
@@ -487,25 +487,32 @@ function PasswordChange({ onSave, onSignOut }: { onSave: (password: string) => P
   return <main className="password-change-page"><form className="login-card" onSubmit={submit}><img className="password-logo" src={publicAsset('alert-logo.png')} alt="Alert" /><p className="eyebrow">Primeiro acesso</p><h2>Crie sua nova senha</h2><p className="form-intro">A senha provisória só pode ser usada uma vez.</p><label>Nova senha<input type="password" value={password} onChange={event => setPassword(event.target.value)} required /></label><label>Confirmar nova senha<input type="password" value={confirmation} onChange={event => setConfirmation(event.target.value)} required /></label>{error && <div className="login-error"><AlertTriangle size={17} />{error}</div>}<button className="primary-button full">Salvar nova senha <ChevronRight size={18} /></button><button type="button" className="text-button" onClick={onSignOut}>Voltar ao login</button></form></main>
 }
 
-function Dashboard({ data, activities, allowedPages, profiles, onAction, onNavigate, onKm, onRequest }: { data: AppData; activities: { title: string; detail: string; tone: string }[]; allowedPages: Set<Page>; profiles: string[]; onAction: (action: ActionName) => void; onNavigate: (page: Page) => void; onKm: () => void; onRequest: () => void }) {
+function Dashboard({ data, allowedPages, profiles, onAction, onNavigate, onKm, onRequest }: { data: AppData; allowedPages: Set<Page>; profiles: string[]; onAction: (action: ActionName) => void; onNavigate: (page: Page) => void; onKm: () => void; onRequest: () => void }) {
   const date = useMemo(() => new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date()), [])
+  const activities = [
+    ...data.trajectories.filter(item => item.author === data.account.name && new Date(item.recordedAt).toLocaleDateString('en-CA') === new Date().toLocaleDateString('en-CA')).map(item => ({ title: item.type, detail: `${item.client || 'Sem cliente'} · ${item.declaredTime}`, tone: item.type === 'Esqueci meu ponto' ? 'warning' : 'success', recordedAt: item.recordedAt })),
+    ...data.kmRecords.filter(item => item.driver === data.account.name && new Date(item.createdAt).toLocaleDateString('en-CA') === new Date().toLocaleDateString('en-CA')).map(item => ({ title: 'Relatório de KM', detail: `${item.vehicle} · ${item.mileage.toLocaleString('pt-BR')} km`, tone: 'success', recordedAt: item.createdAt })),
+  ].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))
+  const nextAudit = upcomingPersonalAudits(data, data.account.id, todayInput())[0]
+  const pendingApprovals = data.stockAssignments.filter(item => item.personId === data.account.id && item.status === 'Pendente').length
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   return <>
     <section className="welcome-row">
       <div><p className="eyebrow">{date}</p><h2>Bom dia, {data.account.name.split(' ')[0]}</h2><p>Perfis ativos: {profileSummary(profiles)}.</p></div>
       <button className="secondary-button"><Download size={17} /> Instalar GIO no celular</button>
     </section>
 
-    <section className="attention-grid">
-      {allowedPages.has('estoque-gerenciamento') && <button className="attention-card critical" onClick={() => onNavigate('estoque-gerenciamento')}><span><AlertTriangle size={21} /></span><div><b>{data.inventory.filter(item => item.quantity < 0).length}</b><small>Itens com saldo negativo</small></div><ChevronRight size={19} /></button>}
-      <button className="attention-card warning" onClick={() => onNavigate('gestao-auditoria')}><span><CalendarClock size={21} /></span><div><b>0</b><small>Auditorias próximas</small></div><ChevronRight size={19} /></button>
-      {allowedPages.has('estoque-pedidos') && <button className="attention-card neutral" onClick={() => onNavigate('estoque-pedidos')}><span><PackageCheck size={21} /></span><div><b>{data.stockRequests.filter(item => item.status !== 'Pedido separado').length}</b><small>Pedidos em andamento</small></div><ChevronRight size={19} /></button>}
-      <button className="attention-card success"><span><ClipboardCheck size={21} /></span><div><b>{data.trajectories.filter(item => item.declaredDate === todayInput()).length + data.kmRecords.length}</b><small>Registros realizados hoje</small></div><ChevronRight size={19} /></button>
+    <section className="attention-grid home-quick-links">
+      <button className="attention-card success" onClick={() => scrollTo('home-latest-records')}><span><ClipboardList size={21} /></span><div><b>Últimos registros</b><small>{activities.length} registros seus hoje</small></div><ChevronRight size={19} /></button>
+      <button className="attention-card warning" onClick={() => onNavigate('gestao-auditoria')}><span><CalendarClock size={21} /></span><div><b>Auditoria próxima</b><small>{nextAudit ? `${nextAudit.category} · ${new Date(`${nextAudit.date}T12:00:00`).toLocaleDateString('pt-BR')}${nextAudit.date < todayInput() ? ' · Em atraso' : nextAudit.first ? ' · Primeira auditoria' : ''}` : 'Nenhuma auditoria pendente'}</small></div><ChevronRight size={19} /></button>
+      <button className="attention-card neutral" onClick={() => scrollTo('home-quick-register')}><span><MapPin size={21} /></span><div><b>Registro rápido</b><small>Preencher um apontamento</small></div><ChevronRight size={19} /></button>
+      <button className="attention-card warning" onClick={() => onNavigate('pessoal-aprovacoes')}><span><PackageCheck size={21} /></span><div><b>Aprovações pendentes</b><small>{pendingApprovals} aguardando sua confirmação</small></div><ChevronRight size={19} /></button>
     </section>
 
     <section className="form-shortcuts"><button onClick={onKm}><span><CarFront size={22} /></span><div><b>Relatório de KM</b><small>Registre antes de ligar o veículo</small></div><ChevronRight size={19} /></button>{allowedPages.has('gestao-solicitacoes') && <button onClick={onRequest}><span><PackageCheck size={22} /></span><div><b>Nova solicitação ao estoque</b><small>Solicite materiais e acompanhe a entrega</small></div><ChevronRight size={19} /></button>}</section>
 
     <section className="content-grid">
-      <article className="surface quick-surface">
+      <article className="surface quick-surface" id="home-quick-register">
         <div className="section-heading"><div><p className="eyebrow">Registro rápido</p><h3>O que está acontecendo agora?</h3></div><MapPin size={21} /></div>
         <div className="action-grid">{actions.map(item => {
           const Icon = item.icon
@@ -513,7 +520,7 @@ function Dashboard({ data, activities, allowedPages, profiles, onAction, onNavig
         })}</div>
       </article>
 
-      <aside className="surface activity-surface">
+      <aside className="surface activity-surface" id="home-latest-records">
         <div className="section-heading"><div><p className="eyebrow">Hoje</p><h3>Seus últimos registros</h3></div><button className="icon-button"><ChevronRight size={18} /></button></div>
         <div className="timeline">{activities.length ? activities.slice(0, 5).map((item, index) => <div className={`timeline-item ${item.tone}`} key={`${item.title}-${index}`}><span className="timeline-dot" /><div><b>{item.title}</b><small>{item.detail}</small></div></div>) : <p className="table-empty">Nenhum registro realizado hoje.</p>}</div>
         <p className="privacy-note"><ShieldCheck size={16} />As coordenadas e o horário real são protegidos e visíveis somente nos relatórios autorizados.</p>
@@ -550,29 +557,30 @@ function OperationPage({ section, data, onAction, onKm }: { section: Page; data:
 
 function StockPage({ section, data, onChange }: { section: Page; data: AppData; onChange: (data: AppData, message?: string) => void }) {
   const [writeOffItem, setWriteOffItem] = useState<InventoryItem | null>(null)
+  const [printDocument, setPrintDocument] = useState<PrintDocument | null>(null)
+  const [search, setSearch] = useState('')
   const config = section === 'pessoal-ferramentas'
-    ? { title: 'Ferramentas', description: 'Consulte e dê baixa nas ferramentas pessoais e rotativas sob sua responsabilidade.', filter: (category: string) => category.includes('Ferramenta') }
+    ? { title: 'Ferramentas', description: 'Consulte suas ferramentas, escadas e o resultado da última auditoria. Imprima cada bloco separadamente.', filter: (category: string) => category.includes('Ferramenta') || category === 'Escada' }
     : section === 'pessoal-epis'
       ? { title: 'EPIs', description: 'Acompanhe e dê baixa nos equipamentos de proteção individual sob sua responsabilidade.', filter: (category: string) => category === 'EPI' }
       : { title: 'Insumos', description: 'Acompanhe os materiais de consumo e registre quando forem instalados ou devolvidos.', filter: (category: string) => category === 'Insumo' }
-  const personalBalances = new Map<string, number>()
-  data.stockAssignments.filter(assignment => assignment.personId === data.account.id && assignment.status === 'Aprovado e retirado').forEach(assignment => personalBalances.set(assignment.inventoryItemId, (personalBalances.get(assignment.inventoryItemId) ?? 0) + assignment.quantity))
-  data.materialUsages.filter(usage => usage.personId === data.account.id && usage.workflowStatus !== 'Cancelado').forEach(usage => personalBalances.set(usage.inventoryItemId, (personalBalances.get(usage.inventoryItemId) ?? 0) - usage.quantity))
-  const filteredItems = data.inventory.filter(item => config.filter(item.category) && (personalBalances.get(item.id) ?? 0) > 0)
+  const filteredItems = personalInventory(data, data.account.id).filter(item => config.filter(item.category))
   const renderStockTable = (title: string, items: typeof filteredItems, secondary = false) => <section className={secondary ? 'surface table-surface stock-secondary-table' : 'surface table-surface'}>
-    <div className="table-toolbar"><div><p className="eyebrow">Estoque individual</p><h3>{title}</h3></div><label className="search-field"><Search size={17} /><input placeholder="Buscar equipamento" /></label></div>
-    <div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Código</th><th>Marca / modelo</th><th>Unidade</th><th>Quantidade</th><th>Status</th><th>Ação</th></tr></thead><tbody>{items.length ? items.map(item => <tr key={item.id}>
-      <td>{item.equipment}</td><td>{item.code}</td><td>{[item.brand, item.model].filter(Boolean).join(' ') || '—'}</td><td>{item.unit}</td><td>{formatQuantity(personalBalances.get(item.id) ?? 0)}</td><td><span className="status success">Atribuído</span></td><td><button className="secondary-button compact" onClick={() => setWriteOffItem(item)}><ClipboardCheck size={15} /> Dar baixa</button></td>
-    </tr>) : <tr><td colSpan={7} className="table-empty">Nenhum item deste tipo foi atribuído a você.</td></tr>}</tbody></table></div>
+    <div className="table-toolbar"><div><p className="eyebrow">Estoque individual</p><h3>{title}</h3></div><button className="secondary-button compact" disabled={!items.length} onClick={() => setPrintDocument(inventoryPrintDocument(data, title, items))}><Printer size={17} /> Imprimir este bloco</button></div>
+    <div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Código / identificador</th><th>Marca / modelo</th><th>Unidade</th><th>Quantidade</th><th>Status</th><th>Ação</th></tr></thead><tbody>{items.length ? items.filter(item => `${item.equipment} ${item.code} ${itemIdentifier(data, data.account.id, item)}`.toLocaleLowerCase('pt-BR').includes(search.trim().toLocaleLowerCase('pt-BR'))).map(item => { const status = itemAuditStatus(data, data.account.id, item); const audit = latestItemAudit(data, data.account.id, item.id); return <tr key={item.id}>
+      <td>{item.equipment}</td><td>{itemIdentifier(data, data.account.id, item)}{itemIdentifier(data, data.account.id, item) !== item.code && <small className="table-subtitle">Cadastro: {item.code}</small>}</td><td>{[item.brand, item.model].filter(Boolean).join(' ') || '—'}</td><td>{item.unit}</td><td>{formatQuantity(item.quantity)}</td><td><span className={`status ${status === 'Não aprovado' ? 'danger' : status === 'Não auditado' ? 'warning' : 'success'}`}>{status}</span>{audit && <small className="table-subtitle">{new Date(audit.record.completedAt).toLocaleDateString('pt-BR')}{audit.result.observation && ` · ${audit.result.observation}`}</small>}</td><td><button className="secondary-button compact" onClick={() => setWriteOffItem(item)}><ClipboardCheck size={15} /> Dar baixa</button></td>
+    </tr> }) : <tr><td colSpan={7} className="table-empty">Nenhum item deste tipo foi atribuído a você.</td></tr>}</tbody></table></div>
   </section>
   return <>
-    <PageIntro eyebrow="Pessoal" title={config.title} description={config.description} />
-    <section className="attention-grid stock-summary"><Metric icon={Warehouse} value={String(filteredItems.length)} label={`Tipos de ${config.title.toLowerCase()}`} /><Metric icon={ClipboardCheck} value={String(data.materialUsages.filter(item => item.personId === data.account.id && item.workflowStatus !== 'Cancelado').length)} label="Baixas realizadas" /><Metric icon={Boxes} value={formatQuantity(filteredItems.reduce((total, item) => total + (personalBalances.get(item.id) ?? 0), 0))} label="Quantidade atribuída" /></section>
+    <PageIntro eyebrow="Pessoal" title={config.title} description={config.description} action={<label className="search-field"><Search size={17} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar equipamento" /></label>} />
+    <section className="attention-grid stock-summary"><Metric icon={Warehouse} value={String(filteredItems.length)} label={`Tipos de ${config.title.toLowerCase()}`} /><Metric icon={ClipboardCheck} value={String(data.materialUsages.filter(item => item.personId === data.account.id && item.workflowStatus !== 'Cancelado').length)} label="Baixas realizadas" /><Metric icon={Boxes} value={formatQuantity(filteredItems.reduce((total, item) => total + item.quantity, 0))} label="Quantidade atribuída" /></section>
     {section === 'pessoal-ferramentas' ? <>
       {renderStockTable('Ferramentas atribuídas a você', filteredItems.filter(item => item.category === 'Ferramenta pessoal'))}
       {renderStockTable('Ferramentas rotativas atribuídas a você', filteredItems.filter(item => item.category === 'Ferramenta rotativa'), true)}
+      {renderStockTable('Escadas atribuídas a você', filteredItems.filter(item => item.category === 'Escada'), true)}
     </> : renderStockTable(`${config.title} atribuídos a você`, filteredItems)}
-    {writeOffItem && <MaterialWriteOffModal data={data} item={writeOffItem} available={personalBalances.get(writeOffItem.id) ?? 0} onClose={() => setWriteOffItem(null)} onChange={onChange} />}
+    {writeOffItem && <MaterialWriteOffModal data={data} item={writeOffItem} available={writeOffItem.quantity} onClose={() => setWriteOffItem(null)} onChange={onChange} />}
+    {printDocument && <PrintDialog document={printDocument} onClose={() => setPrintDocument(null)} />}
   </>
 }
 

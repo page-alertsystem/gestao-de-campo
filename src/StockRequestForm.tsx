@@ -26,7 +26,7 @@ export function StockRequestForm({ code, requester, people, clients, onClose, on
 
   return <div className="full-screen-layer request-layer">
     <form className="request-form" onSubmit={submit}>
-      <header className="form-page-header"><div><p className="eyebrow">Estoque</p><h2>Nova solicitação</h2><p>Adicione todos os materiais necessários. Um único código acompanhará o pedido inteiro.</p></div><button type="button" className="icon-button" onClick={onClose}><X size={21} /></button></header>
+      <header className="form-page-header"><div><p className="eyebrow">Estoque · Insumos</p><h2>Nova solicitação</h2><p>Os itens serão atribuídos como insumos. Um único código acompanhará o pedido inteiro.</p></div><button type="button" className="icon-button" onClick={onClose}><X size={21} /></button></header>
       <main className="request-content">
         <section className="form-section">
           <div className="form-section-title"><span><Boxes size={20} /></span><div><h3>Responsáveis e retirada</h3><p>Informe quem fará a retirada e onde os materiais serão utilizados.</p></div></div>

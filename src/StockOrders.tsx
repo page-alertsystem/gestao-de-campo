@@ -1,6 +1,8 @@
 import { ChangeEvent, FormEvent, useState } from 'react'
-import { ArrowLeft, Boxes, Camera, CheckCircle2, ChevronRight, ClipboardList, PackageCheck, Plus, Replace, UserCheck, X } from 'lucide-react'
+import { ArrowLeft, Boxes, Camera, CheckCircle2, ChevronRight, ClipboardList, PackageCheck, Plus, Printer, Replace, UserCheck, X } from 'lucide-react'
 import { formatQuantity, parseQuantity, type AppData, type InventoryItem, type StockAssignment, type StockRequest, type StockRequestItem } from './store'
+import { PrintDialog } from './PrintDialog'
+import { orderPrintDocument } from './inventoryPrint'
 
 type DataChange = (data: AppData, message?: string) => void
 
@@ -28,6 +30,7 @@ type ItemAction = { requestId: string; itemId: string; mode: 'cancel' | 'substit
 export function StockOrdersPage({ data, onChange }: { data: AppData; onChange: DataChange }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [itemAction, setItemAction] = useState<ItemAction | null>(null)
+  const [printing, setPrinting] = useState(false)
   const selected = data.stockRequests.find(item => item.id === selectedId)
   const requests = [...data.stockRequests].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 
@@ -40,9 +43,11 @@ export function StockOrdersPage({ data, onChange }: { data: AppData; onChange: D
     <button className="secondary-button audit-back" onClick={() => setSelectedId(null)}><ArrowLeft size={16} /> Voltar aos pedidos</button>
     <section className="page-intro order-detail-intro"><div><p className="eyebrow">Pedido {selected.code}</p><h2>Separação do pedido</h2><p>Solicitado por {selected.requester} para {selected.technician}{selected.client ? ` · cliente ${selected.client}` : ''}.</p></div><span className={`status ${requestStatusTone(selected.status)}`}>{selected.status}</span></section>
     <section className="surface order-summary-card"><div><small>Solicitado em</small><b>{new Date(selected.createdAt).toLocaleString('pt-BR')}</b></div><div><small>Retirada prevista</small><b>{selected.expectedDate ? new Date(`${selected.expectedDate}T12:00:00`).toLocaleDateString('pt-BR') : 'Não informada'}</b></div><div><small>Quantidade de itens</small><b>{selected.items}</b></div><div><small>Observação</small><b>{selected.generalNotes || 'Sem observação'}</b></div></section>
+    <div className="order-print-action"><span>Os itens deste pedido serão atribuídos como insumos.</span><button className="secondary-button" onClick={() => setPrinting(true)}><Printer size={18} /> Imprimir pedido</button></div>
     <section className="surface table-surface order-items-table"><div className="table-toolbar"><div><p className="eyebrow">Conferência</p><h3>Itens solicitados</h3></div></div><div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Marca / modelo</th><th>Quantidade</th><th>Situação</th><th>Detalhes</th><th>Ações</th></tr></thead><tbody>{selected.requestedItems.map(item => <tr key={item.id}><td><b>{item.equipment}</b></td><td>{[item.brand, item.model].filter(Boolean).join(' · ') || 'Não informado'}</td><td>{formatQuantity(item.quantity)}</td><td><span className={`status ${requestStatusTone(item.status)}`}>{item.status}</span></td><td>{item.status === 'Substituído' && item.substitute ? <span className="substitute-summary"><b>Substituído por:</b> {item.substitute.equipment} · {formatQuantity(item.substitute.quantity)}</span> : item.description || '—'}</td><td>{selected.status === 'Em separação' && item.status === 'Solicitado' ? <div className="table-actions"><button className="secondary-button compact danger-button" onClick={() => setItemAction({ requestId: selected.id, itemId: item.id, mode: 'cancel' })}><X size={14} /> Cancelar</button><button className="secondary-button compact" onClick={() => setItemAction({ requestId: selected.id, itemId: item.id, mode: 'substitute' })}><Replace size={14} /> Substituir</button></div> : '—'}</td></tr>)}</tbody></table></div></section>
     <section className="surface order-next-step"><div><PackageCheck size={23} /><div><h3>{selected.status === 'Pedido recebido' ? 'Pedido pronto para iniciar' : selected.status === 'Em separação' ? 'Finalize após conferir todos os itens' : 'Separação concluída'}</h3><p>{selected.status === 'Pedido separado' ? 'Este pedido já está disponível no Gerenciamento para atribuição dos equipamentos.' : 'Itens sem estoque podem ser cancelados ou substituídos durante a separação.'}</p></div></div>{selected.status !== 'Pedido separado' && <button className="primary-button" onClick={() => advanceStatus(selected)}>{selected.status === 'Pedido recebido' ? 'Iniciar separação' : 'Marcar como pedido separado'} <ChevronRight size={17} /></button>}</section>
     {itemAction && <RequestItemActionModal action={itemAction} request={selected} onClose={() => setItemAction(null)} onSave={updated => { onChange({ ...data, stockRequests: data.stockRequests.map(item => item.id === updated.id ? updated : item) }, itemAction.mode === 'cancel' ? 'Item cancelado no pedido.' : 'Substituição aprovada.'); setItemAction(null) }} />}
+    {printing && <PrintDialog document={orderPrintDocument(selected)} thermal={false} onClose={() => setPrinting(false)} />}
   </>
 
   return <>
@@ -100,13 +105,13 @@ function EquipmentApprovalModal({ data, request, onClose, onComplete }: { data: 
     const assignments: StockAssignment[] = []
     items.forEach((requestedItem, index) => {
       const source = requestedItem.status === 'Substituído' && requestedItem.substitute ? requestedItem.substitute : requestedItem
-      const matchIndex = inventory.findIndex(item => item.equipment.trim().toLowerCase() === source.equipment.trim().toLowerCase() && (!source.brand || item.brand.trim().toLowerCase() === source.brand.trim().toLowerCase()) && (!source.model || item.model.trim().toLowerCase() === source.model.trim().toLowerCase()))
+      const matchIndex = inventory.findIndex(item => item.category === 'Insumo' && item.equipment.trim().toLowerCase() === source.equipment.trim().toLowerCase() && (!source.brand || item.brand.trim().toLowerCase() === source.brand.trim().toLowerCase()) && (!source.model || item.model.trim().toLowerCase() === source.model.trim().toLowerCase()))
       let inventoryItem: InventoryItem
       if (matchIndex >= 0) {
         inventoryItem = { ...inventory[matchIndex], quantity: inventory[matchIndex].quantity - source.quantity }
         inventory[matchIndex] = inventoryItem
       } else {
-        inventoryItem = { id: crypto.randomUUID(), equipment: source.equipment, brand: source.brand, model: source.model, category: 'Ferramenta pessoal', unit: 'Unidade', quantity: -source.quantity, minimum: 0, code: `${request.code}-${String(index + 1).padStart(2, '0')}`, notes: `Criado a partir da solicitação ${request.code}.` }
+        inventoryItem = { id: crypto.randomUUID(), equipment: source.equipment, brand: source.brand, model: source.model, category: 'Insumo', unit: 'Unidade', quantity: -source.quantity, minimum: 0, code: `${request.code}-${String(index + 1).padStart(2, '0')}`, notes: `Criado a partir da solicitação ${request.code}.` }
         inventory.push(inventoryItem)
       }
       assignments.push({ id: crypto.randomUUID(), personId: selectedPerson.id, inventoryItemId: inventoryItem.id, equipment: inventoryItem.equipment, brand: inventoryItem.brand, model: inventoryItem.model, category: inventoryItem.category, unit: inventoryItem.unit, code: inventoryItem.code, quantity: source.quantity, assignedAt: new Date().toISOString(), assignedBy: data.account.name, notes: `Pedido ${request.code}${requestedItem.description ? ` · ${requestedItem.description}` : ''}`, status: 'Pendente', photo: photos[requestedItem.id], sourceRequestCode: request.code })

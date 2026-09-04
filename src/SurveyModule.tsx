@@ -251,8 +251,8 @@ export function SurveyPage({ data, onChange }: { data: AppData; onChange: (data:
       <form className="rma-form" onSubmit={submit}>
         <div className="rma-form-grid">
           <label>Cliente<input value={client} onChange={event => setClient(event.target.value)} placeholder="Digite o nome do cliente" required /></label>
-          <label>Data inicial<input type="date" value={startDate} onChange={event => { setStartDate(event.target.value); if (endDate < event.target.value) setEndDate(event.target.value) }} required /></label>
-          <label>Data final<input type="date" min={startDate} value={endDate} onChange={event => setEndDate(event.target.value)} required /></label>
+          <label>Prazo inicial<input type="date" value={startDate} onChange={event => { setStartDate(event.target.value); if (endDate < event.target.value) setEndDate(event.target.value) }} required /></label>
+          <label>Prazo final<input type="date" min={startDate} value={endDate} onChange={event => setEndDate(event.target.value)} required /></label>
           <label>Área do levantamento<input value={area} onChange={event => setArea(event.target.value)} placeholder="Ex.: Rede, elétrica, infraestrutura" required /></label>
           <label>Solicitante<input value={data.account.name} readOnly /></label>
           <label className="rma-details">Detalhes da atividade<textarea value={details} onChange={event => setDetails(event.target.value)} placeholder="Descreva o que precisa ser levantado e as informações importantes para a equipe." required /></label>
