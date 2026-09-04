@@ -5,7 +5,7 @@ import { hasProfile } from './access'
 import type { AppData, AuditAnswer, AuditCategory, AuditItemResult, AuditRecord, InventoryItem } from './store'
 import { publicAsset } from './paths'
 import { auditCategoryForItem, itemAuditStatus, itemIdentifier, personalInventory } from './personalInventory'
-import { auditAnswerIsNegative, auditAnswerLabel, auditItemStatus, auditSummaryStatus, ladderAnswerOptions, ladderBlockedMessage, ladderIsApproved, ladderQuestions } from './auditChecklist'
+import { auditAnswerIsNegative, auditAnswerLabel, auditItemStatus, auditSummaryStatus, ladderAnswerOptions, ladderBlockedMessage, ladderIsApproved, ladderNonConformities, ladderQuestions } from './auditChecklist'
 
 const commonQuestions = [
   'O item está funcionando corretamente?',
@@ -74,12 +74,12 @@ export function AuditPage({ data, allowedCategories, onStart }: { data: AppData;
   </>
 }
 
-export function AuditWizard({ data, start, onCancel, onComplete, onBlockLadder }: { data: AppData; start: AuditStart; onCancel: () => void; onComplete: (audit: AuditRecord) => void; onBlockLadder: (itemId: string, personId: string, question: string) => void }) {
+export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppData; start: AuditStart; onCancel: () => void; onComplete: (audit: AuditRecord) => void }) {
+  const itemDrafts = useRef<Record<number, { answers: Record<number, AuditAnswer>; photo: string; currentIdentifier: string; newIdentifier: string; observation: string }>>({})
   const [index, setIndex] = useState(0)
   const [results, setResults] = useState<AuditItemResult[]>([])
   const [answers, setAnswers] = useState<Record<number, AuditAnswer>>({})
-  const [blockedNotice, setBlockedNotice] = useState<string | null>(null)
-  const [blockedItems, setBlockedItems] = useState<Set<string>>(() => new Set())
+  const [reviewAcknowledged, setReviewAcknowledged] = useState(false)
   const [photo, setPhoto] = useState('')
   const [currentIdentifier, setCurrentIdentifier] = useState(() => itemIdentifier(data, start.personId, start.items[0]))
   const [newIdentifier, setNewIdentifier] = useState('')
@@ -88,17 +88,31 @@ export function AuditWizard({ data, start, onCancel, onComplete, onBlockLadder }
   const item = start.items[index]
   const isLadder = start.category === 'Escadas'
   const restriction = data.inventory.find(entry => entry.id === item.id)?.ladderRestriction
-  const restricted = Boolean(restriction) || blockedItems.has(item.id)
+  const restricted = Boolean(restriction)
   const questions = isLadder ? ladderQuestions : commonQuestions
   const complete = Object.keys(answers).length === questions.length && Boolean(photo)
 
   const chooseAnswer = (questionIndex: number, answer: AuditAnswer) => {
     setAnswers(current => ({ ...current, [questionIndex]: answer }))
-    if (isLadder && answer === 'Não conforme') {
-      setBlockedItems(current => new Set([...current, item.id]))
-      setBlockedNotice(questions[questionIndex])
-      onBlockLadder(item.id, start.personId, questions[questionIndex])
-    }
+  }
+
+  const openItem = (targetIndex: number, drafts = results) => {
+    itemDrafts.current[index] = { answers, photo, currentIdentifier, newIdentifier, observation }
+    const saved = drafts[targetIndex]
+    const draft = itemDrafts.current[targetIndex]
+    setIndex(targetIndex)
+    setAnswers(draft?.answers ?? (saved ? Object.fromEntries(saved.answers.map((entry, answerIndex) => [answerIndex, entry.answer])) : {}))
+    setPhoto(draft?.photo ?? saved?.photo ?? '')
+    setCurrentIdentifier(draft?.currentIdentifier ?? saved?.currentIdentifier ?? itemIdentifier(data, start.personId, start.items[targetIndex]))
+    setNewIdentifier(draft?.newIdentifier ?? saved?.newIdentifier ?? '')
+    setObservation(draft?.observation ?? saved?.observation ?? '')
+  }
+
+  const reviseResults = (targetIndex: number) => {
+    if (!closingResults) return
+    setResults(closingResults)
+    openItem(targetIndex, closingResults)
+    setClosingResults(null); setReviewAcknowledged(false)
   }
 
   const choosePhoto = (event: ChangeEvent<HTMLInputElement>) => {
@@ -111,18 +125,25 @@ export function AuditWizard({ data, start, onCancel, onComplete, onBlockLadder }
 
   const next = () => {
     if (!complete) return
-    const result: AuditItemResult = { inventoryItemId: item.id, equipment: item.equipment, code: item.code, currentIdentifier: currentIdentifier.trim(), newIdentifier: newIdentifier.trim(), observation: observation.trim(), restrictionReason: isLadder && restricted ? `${ladderBlockedMessage}\n${restriction?.questions.join('\n') ?? ''}` : undefined, answers: questions.map((question, questionIndex) => ({ question, answer: answers[questionIndex] })), photo, approved: isLadder ? ladderIsApproved(answers, restricted) : answers[questions.length - 1] === true }
-    const nextResults = [...results, result]
+    const nonConformities = isLadder ? questions.filter((_, questionIndex) => answers[questionIndex] === 'Não conforme') : []
+    const restrictionQuestions = [...new Set([...(restriction?.questions ?? []), ...nonConformities])]
+    const result: AuditItemResult = { inventoryItemId: item.id, equipment: item.equipment, code: item.code, currentIdentifier: currentIdentifier.trim(), newIdentifier: newIdentifier.trim(), observation: observation.trim(), restrictionReason: isLadder && (restricted || nonConformities.length > 0) ? `${ladderBlockedMessage}\n${restrictionQuestions.join('\n')}` : undefined, answers: questions.map((question, questionIndex) => ({ question, answer: answers[questionIndex] })), photo, approved: isLadder ? ladderIsApproved(answers, restricted) : answers[questions.length - 1] === true }
+    const nextResults = [...results]
+    nextResults[index] = result
+    setResults(nextResults)
     if (index === start.items.length - 1) {
       setClosingResults(nextResults)
       return
     }
-    setResults(nextResults); setIndex(current => current + 1); setAnswers({}); setPhoto('')
-    setCurrentIdentifier(itemIdentifier(data, start.personId, start.items[index + 1])); setNewIdentifier(''); setObservation('')
+    openItem(index + 1, nextResults)
   }
 
-  if (closingResults) return <AuditSigning data={data} start={start} results={closingResults} onCancel={onCancel} onComplete={onComplete} />
-  if (blockedNotice) return <div className="full-screen-layer ladder-block-screen" role="alertdialog" aria-modal="true" aria-labelledby="ladder-block-title" aria-describedby="ladder-block-description"><section className="surface"><AlertTriangle size={56} /><h2 id="ladder-block-title">Escada não liberada</h2><p id="ladder-block-description">Favor entrar em contato com seu gestor e solicitar a substituição.</p><b>{item.equipment} · {itemIdentifier(data, start.personId, item)}</b><p className="ladder-block-question">Item não conforme: {blockedNotice}</p><small>A escada ficará como “Não liberada”, mesmo se você fechar a auditoria. Continue o registro para documentar as demais condições, a foto e a assinatura.</small><div><button className="primary-button" autoFocus onClick={() => setBlockedNotice(null)}>Entendi, continuar registro</button><button className="secondary-button" onClick={onCancel}>Fechar auditoria</button></div></section></div>
+  if (closingResults && isLadder && !reviewAcknowledged && closingResults.some(result => !result.approved)) return <div className="full-screen-layer ladder-block-screen ladder-final-review" role="dialog" aria-modal="true" aria-labelledby="ladder-review-title"><section className="surface"><AlertTriangle size={48} /><h2 id="ladder-review-title">Revisão final das escadas</h2><p>Foram identificadas as seguintes não conformidades:</p>{closingResults.map((result, resultIndex) => {
+    const nonConformities = ladderNonConformities(result)
+    if (result.approved) return null
+    return <article className="ladder-review-item" key={result.inventoryItemId}><b>{result.equipment} · {result.newIdentifier || result.currentIdentifier || result.code}</b>{nonConformities.length ? <ul>{nonConformities.map(question => <li key={question}>{question}</li>)}</ul> : <p>Esta escada possui uma restrição anterior registrada. Nenhuma nova não conformidade foi marcada neste checklist.</p>}<button className="secondary-button compact" onClick={() => reviseResults(resultIndex)}>Revisar esta escada</button></article>
+  })}<p className="ladder-review-instruction">{ladderBlockedMessage}</p><small>Se alguma resposta foi marcada por engano, volte e corrija. O status será alterado somente ao finalizar a auditoria assinada.</small><div><button className="secondary-button" onClick={() => reviseResults(0)}>Voltar ao checklist</button><button className="primary-button" autoFocus onClick={() => setReviewAcknowledged(true)}>Continuar para assinatura</button><button className="text-button" onClick={onCancel}>Cancelar auditoria</button></div></section></div>
+  if (closingResults) return <AuditSigning data={data} start={start} results={closingResults} onCancel={onCancel} onBack={() => reviseResults(start.items.length - 1)} onComplete={onComplete} />
 
   return <div className="full-screen-layer audit-wizard-layer">
     <header className="form-page-header"><div><p className="eyebrow">Auditoria de {start.category} · {start.personName}</p><h2>{item.equipment}</h2><p>Item {index + 1} de {start.items.length} · código {item.code || 'não informado'}</p></div><button className="icon-button" onClick={onCancel} aria-label="Fechar auditoria"><X size={22} /></button></header>
@@ -131,14 +152,14 @@ export function AuditWizard({ data, start, onCancel, onComplete, onBlockLadder }
       <section className="surface audit-item-info"><div><span>Equipamento</span><b>{item.equipment}</b></div><div><span>Marca / modelo</span><b>{[item.brand, item.model].filter(Boolean).join(' / ') || 'Não informado'}</b></div><div><span>Pessoa auditada</span><b>{start.personName}</b></div></section>
       {isLadder && restricted && <div className="ladder-restriction-banner" role="status"><AlertTriangle size={22} /><p>{ladderBlockedMessage}</p></div>}
       <section className="surface audit-identifiers"><div className="section-heading"><div><p className="eyebrow">Identificação do equipamento</p><h3>Identificadores e observação</h3></div></div><div className="form-grid"><label>Identificador atual<input type="text" maxLength={120} value={currentIdentifier} onChange={event => setCurrentIdentifier(event.target.value)} placeholder="Texto ou identificação atual" /></label><label>Novo identificador (opcional)<input type="text" maxLength={120} value={newIdentifier} onChange={event => setNewIdentifier(event.target.value)} placeholder="Preencha se houver uma nova identificação" /></label><label className="full">Observação do equipamento (opcional)<textarea rows={2} maxLength={500} value={observation} onChange={event => setObservation(event.target.value)} placeholder="Uma breve observação sobre este equipamento" /></label></div></section>
-      <section className="surface audit-checklist"><div className="section-heading"><div><p className="eyebrow">Checklist obrigatório</p><h3>Condições do equipamento</h3></div><ListChecks size={22} /></div>{isLadder && <p className="table-subtitle">Marque “Não aplicável” somente quando a condição não se aplicar a esta escada. Qualquer item “Não conforme” impede a liberação.</p>}{questions.map((question, questionIndex) => <div className={isLadder ? 'audit-question ladder-question' : 'audit-question'} key={question}><p><b>{questionIndex + 1}.</b> {question}</p><div>{isLadder ? ladderAnswerOptions.map(answer => <button key={answer} aria-pressed={answers[questionIndex] === answer} className={`answer-button ${answer === 'Conforme' ? 'yes' : answer === 'Não conforme' ? 'no' : 'not-applicable'}${answers[questionIndex] === answer ? ' active' : ''}`} onClick={() => chooseAnswer(questionIndex, answer)}>{answer}</button>) : <><button className={answers[questionIndex] === true ? 'answer-button yes active' : 'answer-button yes'} onClick={() => chooseAnswer(questionIndex, true)}>Sim</button><button className={answers[questionIndex] === false ? 'answer-button no active' : 'answer-button no'} onClick={() => chooseAnswer(questionIndex, false)}>Não</button></>}</div></div>)}</section>
+      <section className="surface audit-checklist"><div className="section-heading"><div><p className="eyebrow">Checklist obrigatório</p><h3>Condições do equipamento</h3></div><ListChecks size={22} /></div>{isLadder && <p className="table-subtitle">Marque “Não aplicável” somente quando a condição não se aplicar a esta escada. As não conformidades serão apresentadas para revisão ao final do checklist.</p>}{questions.map((question, questionIndex) => <div className={isLadder ? 'audit-question ladder-question' : 'audit-question'} key={question}><p><b>{questionIndex + 1}.</b> {question}</p><div>{isLadder ? ladderAnswerOptions.map(answer => <button key={answer} aria-pressed={answers[questionIndex] === answer} className={`answer-button ${answer === 'Conforme' ? 'yes' : answer === 'Não conforme' ? 'no' : 'not-applicable'}${answers[questionIndex] === answer ? ' active' : ''}`} onClick={() => chooseAnswer(questionIndex, answer)}>{answer}</button>) : <><button className={answers[questionIndex] === true ? 'answer-button yes active' : 'answer-button yes'} onClick={() => chooseAnswer(questionIndex, true)}>Sim</button><button className={answers[questionIndex] === false ? 'answer-button no active' : 'answer-button no'} onClick={() => chooseAnswer(questionIndex, false)}>Não</button></>}</div></div>)}</section>
       <section className="surface audit-photo-section"><div className="section-heading"><div><p className="eyebrow">Evidência obrigatória</p><h3>Foto do equipamento</h3></div><Camera size={22} /></div><label className={photo ? 'audit-photo-field filled' : 'audit-photo-field'}><Camera size={28} /><b>{photo ? 'Foto adicionada' : 'Abrir câmera'}</b><small>{photo ? 'Toque para substituir a foto' : 'Registre a condição atual do equipamento'}</small><input key={item.id} type="file" accept="image/*" capture="environment" onChange={choosePhoto} /></label>{photo && <img className="audit-photo-preview" src={photo} alt={`Registro de ${item.equipment}`} />}</section>
     </main>
-    <footer className="audit-wizard-footer"><button className="secondary-button" disabled={index === 0} onClick={() => { const previous = results[index - 1]; if (!previous) return; setIndex(current => current - 1); setResults(current => current.slice(0, -1)); setAnswers(Object.fromEntries(previous.answers.map((answer, answerIndex) => [answerIndex, answer.answer]))); setPhoto(previous.photo); setCurrentIdentifier(previous.currentIdentifier ?? previous.code); setNewIdentifier(previous.newIdentifier ?? ''); setObservation(previous.observation ?? '') }}><ChevronLeft size={18} /> Anterior</button><p>{Object.keys(answers).length} de {questions.length} respostas · {photo ? 'foto pronta' : 'foto pendente'}</p><button className="primary-button" disabled={!complete} onClick={next}>{index === start.items.length - 1 ? <><PenLine size={18} /> Continuar para assinatura</> : <>Próximo equipamento <ChevronRight size={18} /></>}</button></footer>
+    <footer className="audit-wizard-footer"><button className="secondary-button" disabled={index === 0} onClick={() => openItem(index - 1)}><ChevronLeft size={18} /> Anterior</button><p>{Object.keys(answers).length} de {questions.length} respostas · {photo ? 'foto pronta' : 'foto pendente'}</p><button className="primary-button" disabled={!complete} onClick={next}>{index === start.items.length - 1 ? <><PenLine size={18} /> {isLadder ? 'Concluir checklist' : 'Continuar para assinatura'}</> : <>Próximo equipamento <ChevronRight size={18} /></>}</button></footer>
   </div>
 }
 
-function AuditSigning({ data, start, results, onCancel, onComplete }: { data: AppData; start: AuditStart; results: AuditItemResult[]; onCancel: () => void; onComplete: (audit: AuditRecord) => void }) {
+function AuditSigning({ data, start, results, onCancel, onBack, onComplete }: { data: AppData; start: AuditStart; results: AuditItemResult[]; onCancel: () => void; onBack: () => void; onComplete: (audit: AuditRecord) => void }) {
   const [auditorSignature, setAuditorSignature] = useState<string | null>(null)
   const [auditedSignature, setAuditedSignature] = useState<string | null>(null)
   const [activeSigner, setActiveSigner] = useState<'auditor' | 'audited' | null>(null)
@@ -178,7 +199,7 @@ function AuditSigning({ data, start, results, onCancel, onComplete }: { data: Ap
         {!selfAudit && <button className={auditedSignature ? 'signature-select registered' : 'signature-select'} onClick={() => setActiveSigner('audited')}><span><UserCheck size={22} /></span><div><b>{start.personName}</b><small>Pessoa auditada</small></div><strong>{auditedSignature ? 'Assinatura registrada' : 'Toque para assinar'}</strong><ChevronRight size={18} /></button>}
       </section>
       {error && <p className="audit-final-error"><AlertTriangle size={17} />{error}</p>}
-      <div className="audit-signing-actions"><button className="secondary-button" disabled={generating} onClick={onCancel}>Cancelar</button><button className="primary-button" disabled={!ready || generating} onClick={finish}>{generating ? 'Gerando PDF...' : <><FileDown size={18} /> Finalizar e salvar PDF</>}</button></div>
+      <div className="audit-signing-actions"><button className="secondary-button" disabled={generating} onClick={onBack}>Voltar ao checklist</button><button className="secondary-button" disabled={generating} onClick={onCancel}>Cancelar</button><button className="primary-button" disabled={!ready || generating} onClick={finish}>{generating ? 'Gerando PDF...' : <><FileDown size={18} /> Finalizar e salvar PDF</>}</button></div>
     </main>
   </div>
 }

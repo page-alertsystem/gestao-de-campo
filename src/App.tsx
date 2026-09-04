@@ -22,7 +22,7 @@ import { publicAsset } from './paths'
 import { itemAuditStatus, itemIdentifier, latestItemAudit, personalInventory, upcomingPersonalAudits } from './personalInventory'
 import { inventoryPrintDocument, type PrintDocument } from './inventoryPrint'
 import { PrintDialog } from './PrintDialog'
-import { restrictLadder } from './auditChecklist'
+import { recordCompletedAudit } from './auditChecklist'
 
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; formOpenedAt: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
@@ -433,7 +433,7 @@ export default function App() {
       const people = technicianExists ? data.people : [...data.people, { id: crypto.randomUUID(), name: request.technician, email: '', groups: ['Técnico'], active: true, canLogin: false }]
       updateData({ ...data, people, stockRequests: [...data.stockRequests, stockRequest] }); setRequestOpen(false); showToast(`Solicitação ${request.code} criada com sucesso.`)
     }} />}
-    {activeAudit && <AuditWizard data={data} start={activeAudit} onCancel={() => setActiveAudit(null)} onBlockLadder={(itemId, personId, question) => updateData(restrictLadder(data, itemId, personId, question))} onComplete={audit => { const nextDate = new Date(`${audit.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR'); updateData({ ...data, audits: [...data.audits, audit] }, `Auditoria concluída e PDF salvo. Próxima auditoria: ${nextDate}.`); setActiveAudit(null) }} />}
+    {activeAudit && <AuditWizard data={data} start={activeAudit} onCancel={() => setActiveAudit(null)} onComplete={audit => { const nextDate = new Date(`${audit.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR'); updateData(recordCompletedAudit(data, audit), `Auditoria concluída e PDF salvo. Próxima auditoria: ${nextDate}.`); setActiveAudit(null) }} />}
   </div>
 }
 

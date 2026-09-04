@@ -1,4 +1,4 @@
-import type { AppData, AuditAnswer, AuditCategory, AuditItemResult } from './store'
+import type { AppData, AuditAnswer, AuditCategory, AuditItemResult, AuditRecord } from './store'
 
 export const ladderQuestions = [
   'A escada está em bom estado de conservação? (degraus, montantes laterais, ausência de trincas, deformações, corrosão, parafusos fixos e funcionamento adequado)',
@@ -29,16 +29,25 @@ export function ladderIsApproved(answers: Record<number, AuditAnswer>, restricte
   return !restricted && ladderQuestions.every((_, index) => answers[index] === 'Conforme' || answers[index] === 'Não aplicável')
 }
 
-// Restriction is saved immediately, independently of the signed audit. Closing
-// the wizard or changing an answer cannot silently release the same ladder.
-export function restrictLadder(data: AppData, itemId: string, personId: string, question: string, reportedAt = new Date().toISOString()): AppData {
-  return { ...data, inventory: data.inventory.map(item => {
-    if (item.id !== itemId || item.category !== 'Escada') return item
+export function ladderNonConformities(result: AuditItemResult) {
+  return result.answers.filter(entry => entry.answer === 'Não conforme').map(entry => entry.question)
+}
+
+// Draft selections have no side effects. Persist the signed audit and its
+// confirmed restrictions together, without changing earlier recorded blocks.
+export function recordCompletedAudit(data: AppData, audit: AuditRecord): AppData {
+  if (data.audits.some(entry => entry.id === audit.id)) return data
+  const inventory = audit.category !== 'Escadas' ? data.inventory : data.inventory.map(item => {
+    if (item.category !== 'Escada') return item
+    const result = audit.results.find(entry => entry.inventoryItemId === item.id)
+    const questions = result ? ladderNonConformities(result) : []
+    if (!questions.length) return item
     const previous = item.ladderRestriction
     return { ...item, ladderRestriction: {
-      status: 'Não liberada', reportedAt: previous?.reportedAt ?? reportedAt,
-      personId: previous?.personId ?? personId, reportedBy: previous?.reportedBy ?? data.account.name,
-      questions: [...new Set([...(previous?.questions ?? []), question])],
+      status: 'Não liberada' as const, reportedAt: previous?.reportedAt ?? audit.completedAt,
+      personId: previous?.personId ?? audit.personId, reportedBy: previous?.reportedBy ?? audit.auditorName,
+      questions: [...new Set([...(previous?.questions ?? []), ...questions])],
     } }
-  }) }
+  })
+  return { ...data, inventory, audits: [...data.audits, audit] }
 }
