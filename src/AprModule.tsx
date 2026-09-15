@@ -5,6 +5,9 @@ import type { AppData, AprRecord } from './store'
 import { publicAsset } from './paths'
 
 type AprPhoto = { id: string; name: string; data: string }
+type AprSheet = { id: string; front?: AprPhoto; back?: AprPhoto }
+
+const newAprSheet = (): AprSheet => ({ id: crypto.randomUUID() })
 
 function localDateInput(date = new Date()) {
   const year = date.getFullYear()
@@ -61,8 +64,7 @@ function AprForm({ data, onCancel, onComplete }: { data: AppData; onCancel: () =
   const [releaseDate, setReleaseDate] = useState(localDateInput)
   const [releaseTime, setReleaseTime] = useState(nowTimeInput)
   const [description, setDescription] = useState('')
-  const [frontPhotos, setFrontPhotos] = useState<AprPhoto[]>([])
-  const [backPhotos, setBackPhotos] = useState<AprPhoto[]>([])
+  const [sheets, setSheets] = useState<AprSheet[]>(() => [newAprSheet()])
   const [signature, setSignature] = useState<string | null>(null)
   const [signatureOpen, setSignatureOpen] = useState(false)
   const [processingPhoto, setProcessingPhoto] = useState(false)
@@ -78,24 +80,30 @@ function AprForm({ data, onCancel, onComplete }: { data: AppData; onCancel: () =
     if (!externalTechnicians.some(item => item.toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'))) setExternalTechnicians(current => [...current, name])
     setExternalName('')
   }
-  const addPhoto = async (file: File | undefined, side: 'front' | 'back') => {
+  const addPhoto = async (file: File | undefined, sheetId: string, side: 'front' | 'back') => {
     if (!file) return
     setProcessingPhoto(true); setError('')
     try {
       const photo = { id: crypto.randomUUID(), name: file.name, data: await compressPhoto(file) }
-      if (side === 'front') setFrontPhotos(current => [...current, photo])
-      else setBackPhotos(current => [...current, photo])
+      setSheets(current => current.map(sheet => sheet.id === sheetId ? { ...sheet, [side]: photo } : sheet))
     } catch {
       setError('Não foi possível preparar esta imagem. Tente tirar a foto novamente.')
     } finally {
       setProcessingPhoto(false)
     }
   }
+  const removePhoto = (sheetId: string, side: 'front' | 'back') => setSheets(current => current.map(sheet => {
+    if (sheet.id !== sheetId) return sheet
+    const updated = { ...sheet }
+    delete updated[side]
+    return updated
+  }))
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!technicianNames.length) return setError('Adicione pelo menos um técnico envolvido na APR.')
-    if (!frontPhotos.length || !backPhotos.length) return setError('Adicione pelo menos uma foto da frente e uma foto do verso da APR.')
+    const incompleteSheet = sheets.findIndex(sheet => !sheet.front || !sheet.back)
+    if (incompleteSheet >= 0) return setError(`Adicione a frente e o verso da folha ${incompleteSheet + 1}.`)
     if (!signature) return setError('Registre a assinatura do técnico responsável antes de concluir.')
     setGenerating(true); setError('')
     const createdAt = new Date().toISOString()
@@ -103,11 +111,11 @@ function AprForm({ data, onCancel, onComplete }: { data: AppData; onCancel: () =
     const record: AprRecord = {
       id: crypto.randomUUID(), createdAt, createdById: data.account.id, createdByName: data.account.name,
       technicians: technicianNames, client: client.trim(), unit: unit.trim(), releaseDate, releaseTime,
-      description: description.trim(), frontPhotoCount: frontPhotos.length, backPhotoCount: backPhotos.length,
+      description: description.trim(), frontPhotoCount: sheets.length, backPhotoCount: sheets.length,
       signedBy: data.account.name, pdfFileName: `APR Aprovada - ${safeClient} - ${releaseDate}.pdf`,
     }
     try {
-      record.pdfData = await createAprPdf(record, frontPhotos, backPhotos, signature)
+      record.pdfData = await createAprPdf(record, sheets, signature)
       onComplete(record)
     } catch {
       setError('Não foi possível gerar o PDF da APR. Tente concluir novamente.')
@@ -132,9 +140,9 @@ function AprForm({ data, onCancel, onComplete }: { data: AppData; onCancel: () =
         <label className="full">Descrição da atividade<textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={4000} placeholder="Descreva completamente a atividade liberada pela APR" required /></label>
       </div></section>
 
-      <section className="form-section"><div className="form-section-title"><span><Camera size={20} /></span><div><h3>Fotos da APR</h3><p>Adicione quantas imagens forem necessárias. Cada foto ocupará uma página do PDF.</p></div></div><div className="apr-photo-columns">
-        <AprPhotoGroup title="Frente" photos={frontPhotos} processing={processingPhoto} onAdd={file => void addPhoto(file, 'front')} onRemove={id => setFrontPhotos(current => current.filter(photo => photo.id !== id))} />
-        <AprPhotoGroup title="Verso" photos={backPhotos} processing={processingPhoto} onAdd={file => void addPhoto(file, 'back')} onRemove={id => setBackPhotos(current => current.filter(photo => photo.id !== id))} />
+      <section className="form-section"><div className="form-section-title"><span><Camera size={20} /></span><div><h3>Folhas da APR</h3><p>Fotografe a frente e o verso de cada folha. Cada imagem ocupará uma página do PDF.</p></div></div><div className="apr-sheet-list">
+        {sheets.map((sheet, index) => <AprSheetCard key={sheet.id} sheet={sheet} index={index} canRemove={sheets.length > 1} processing={processingPhoto} onAdd={(file, side) => void addPhoto(file, sheet.id, side)} onRemovePhoto={side => removePhoto(sheet.id, side)} onRemoveSheet={() => setSheets(current => current.filter(item => item.id !== sheet.id))} />)}
+        <button type="button" className="secondary-button apr-add-sheet" onClick={() => setSheets(current => [...current, newAprSheet()])} disabled={processingPhoto}><Plus size={17} /> Adicionar outra folha</button>
       </div></section>
 
       <section className="form-section apr-signature-section"><div className="form-section-title"><span><PenLine size={20} /></span><div><h3>Assinatura do técnico responsável</h3><p>A assinatura será exibida na última página do PDF.</p></div></div><button type="button" className={signature ? 'signature-select registered' : 'signature-select'} onClick={() => setSignatureOpen(true)}><span><PenLine size={22} /></span><div><b>{data.account.name}</b><small>Técnico responsável pelo registro</small></div><strong>{signature ? 'Assinatura registrada' : 'Toque para assinar'}</strong><ChevronRight size={18} /></button></section>
@@ -144,8 +152,16 @@ function AprForm({ data, onCancel, onComplete }: { data: AppData; onCancel: () =
   </form>{signatureOpen && <AprSignatureDialog signer={data.account.name} initial={signature} onCancel={() => setSignatureOpen(false)} onSave={value => { setSignature(value); setSignatureOpen(false); setError('') }} />}</div>
 }
 
-function AprPhotoGroup({ title, photos, processing, onAdd, onRemove }: { title: 'Frente' | 'Verso'; photos: AprPhoto[]; processing: boolean; onAdd: (file?: File) => void; onRemove: (id: string) => void }) {
-  return <article className="apr-photo-group"><div><b>Fotos da {title.toLocaleLowerCase('pt-BR')}</b><small>{photos.length} {photos.length === 1 ? 'imagem adicionada' : 'imagens adicionadas'}</small></div><label className="apr-photo-add"><input type="file" accept="image/*" capture="environment" disabled={processing} onChange={event => { onAdd(event.target.files?.[0]); event.target.value = '' }} /><Camera size={22} /><b>{processing ? 'Preparando imagem...' : `Adicionar foto - ${title}`}</b><small>Abrir câmera ou galeria</small></label><div className="apr-photo-list">{photos.map((photo, index) => <div key={photo.id}><img src={photo.data} alt={`${title} da APR ${index + 1}`} /><span>{title} {index + 1}</span><button type="button" onClick={() => onRemove(photo.id)} aria-label={`Remover foto ${title.toLocaleLowerCase('pt-BR')} ${index + 1}`}><Trash2 size={15} /></button></div>)}</div></article>
+function AprSheetCard({ sheet, index, canRemove, processing, onAdd, onRemovePhoto, onRemoveSheet }: { sheet: AprSheet; index: number; canRemove: boolean; processing: boolean; onAdd: (file: File | undefined, side: 'front' | 'back') => void; onRemovePhoto: (side: 'front' | 'back') => void; onRemoveSheet: () => void }) {
+  return <article className="apr-sheet-card"><div className="apr-sheet-heading"><div><b>Folha {index + 1}</b><small>{sheet.front && sheet.back ? 'Frente e verso adicionados' : 'Adicione os dois lados da folha'}</small></div>{canRemove && <button type="button" onClick={onRemoveSheet} aria-label={`Remover folha ${index + 1}`}><Trash2 size={16} /> Remover folha</button>}</div><div className="apr-sheet-photo-grid">
+    <AprSheetPhoto sheetNumber={index + 1} side="front" photo={sheet.front} processing={processing} onAdd={file => onAdd(file, 'front')} onRemove={() => onRemovePhoto('front')} />
+    <AprSheetPhoto sheetNumber={index + 1} side="back" photo={sheet.back} processing={processing} onAdd={file => onAdd(file, 'back')} onRemove={() => onRemovePhoto('back')} />
+  </div></article>
+}
+
+function AprSheetPhoto({ sheetNumber, side, photo, processing, onAdd, onRemove }: { sheetNumber: number; side: 'front' | 'back'; photo?: AprPhoto; processing: boolean; onAdd: (file?: File) => void; onRemove: () => void }) {
+  const label = side === 'front' ? 'Frente' : 'Verso'
+  return <div className={photo ? 'apr-sheet-photo has-photo' : 'apr-sheet-photo'}><label><input aria-label={`${label} da folha ${sheetNumber}`} type="file" accept="image/*" capture="environment" disabled={processing} onChange={event => { onAdd(event.target.files?.[0]); event.target.value = '' }} />{photo ? <img src={photo.data} alt={`${label} da folha ${sheetNumber}`} /> : <Camera size={24} />}<span><b>{processing ? 'Preparando imagem...' : `${label} da folha`}</b><small>{photo ? 'Toque para substituir a foto' : 'Abrir câmera ou galeria'}</small></span></label>{photo && <button type="button" onClick={onRemove} aria-label={`Remover ${label.toLocaleLowerCase('pt-BR')} da folha ${sheetNumber}`}><Trash2 size={15} /></button>}</div>
 }
 
 function AprSignatureDialog({ signer, initial, onCancel, onSave }: { signer: string; initial: string | null; onCancel: () => void; onSave: (signature: string) => void }) {
@@ -221,7 +237,7 @@ function addContainedImage(pdf: jsPDF, dataUrl: string, x: number, y: number, ma
   pdf.addImage(dataUrl, format, x + (maximumWidth - width) / 2, y + (maximumHeight - height) / 2, width, height)
 }
 
-export async function createAprPdf(record: AprRecord, frontPhotos: AprPhoto[], backPhotos: AprPhoto[], signature: string) {
+export async function createAprPdf(record: AprRecord, sheets: AprSheet[], signature: string) {
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
   let logo = ''
   try { logo = await fetch(publicAsset('alert-logo.png')).then(response => response.blob()).then(blobToDataUrl) } catch { /* O título textual mantém o documento identificado. */ }
@@ -257,17 +273,15 @@ export async function createAprPdf(record: AprRecord, frontPhotos: AprPhoto[], b
     pdf.text(line, 15, y); y += 5
   }
 
-  const maximum = Math.max(frontPhotos.length, backPhotos.length)
-  for (let index = 0; index < maximum; index += 1) {
-    const front = frontPhotos[index]
-    const back = backPhotos[index]
+  for (let index = 0; index < sheets.length; index += 1) {
+    const { front, back } = sheets[index]
     if (front) {
-      addPage(`Foto da frente ${index + 1} de ${frontPhotos.length}`)
+      addPage(`Folha ${index + 1} - frente`)
       pdf.setDrawColor(214, 219, 216); pdf.roundedRect(15, 47, 180, 224, 3, 3)
       addContainedImage(pdf, front.data, 18, 50, 174, 218)
     }
     if (back) {
-      addPage(`Foto do verso ${index + 1} de ${backPhotos.length}`)
+      addPage(`Folha ${index + 1} - verso`)
       pdf.setDrawColor(214, 219, 216); pdf.roundedRect(15, 47, 180, 224, 3, 3)
       addContainedImage(pdf, back.data, 18, 50, 174, 218)
     }
