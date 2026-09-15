@@ -14,19 +14,19 @@ export type ProfileName = typeof profileNames[number]
 
 export type Page =
   | 'inicio'
-  | 'operacao-km' | 'operacao-dia' | 'operacao-ponto'
+  | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'operacao-apr'
   | 'gestao-auditoria' | 'gestao-solicitacoes' | 'gestao-levantamento'
   | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes'
   | 'estoque-pedidos' | 'estoque-baixas' | 'estoque-gerenciamento'
   | 'manutencao-rma' | 'manutencao-danificados'
-  | 'documentos-auditorias' | 'documentos-troca-veiculo'
+  | 'documentos-auditorias' | 'documentos-troca-veiculo' | 'documentos-aprs'
   | 'relatorios-km' | 'relatorios-registro-dia' | 'relatorios-ponto' | 'relatorios-auditoria'
   | 'relatorios-solicitacoes' | 'relatorios-ferramentas' | 'relatorios-epis' | 'relatorios-insumos'
   | 'relatorios-baixas' | 'relatorios-rma' | 'relatorios-levantamentos'
   | 'configuracoes'
 
 export const profileDescriptions: Record<ProfileName, string> = {
-  'Técnico': 'Operação, estoque pessoal, aprovações, auditoria semanal da própria escada e solicitação de RMA.',
+  'Técnico': 'Operação, APR aprovada, estoque pessoal, aprovações, auditoria semanal da própria escada e solicitação de RMA.',
   'RH': 'Acesso do técnico mais relatórios de registro do dia e ponto esquecido.',
   'Logística': 'Acesso do técnico mais consulta ao relatório de quilometragem.',
   'Estoque': 'Acesso do técnico mais pedidos, baixas, gerenciamento e relatórios do estoque.',
@@ -39,7 +39,7 @@ export const profileDescriptions: Record<ProfileName, string> = {
 
 const technicianPages: Page[] = [
   'inicio',
-  'operacao-km', 'operacao-dia', 'operacao-ponto',
+  'operacao-km', 'operacao-dia', 'operacao-ponto', 'operacao-apr',
   'pessoal-ferramentas', 'pessoal-insumos', 'pessoal-epis', 'pessoal-aprovacoes',
   'gestao-auditoria',
   'manutencao-rma',
@@ -59,12 +59,12 @@ const profilePages: Record<ProfileName, Page[]> = {
   'Manutenção': ['manutencao-rma', 'manutencao-danificados', 'relatorios-rma'],
   'Administrador': [
     'inicio',
-    'operacao-km', 'operacao-dia', 'operacao-ponto',
+    'operacao-km', 'operacao-dia', 'operacao-ponto', 'operacao-apr',
     'gestao-auditoria', 'gestao-solicitacoes', 'gestao-levantamento',
     'pessoal-ferramentas', 'pessoal-insumos', 'pessoal-epis', 'pessoal-aprovacoes',
     'estoque-pedidos', 'estoque-baixas', 'estoque-gerenciamento',
     'manutencao-rma', 'manutencao-danificados',
-    'documentos-auditorias', 'documentos-troca-veiculo',
+    'documentos-auditorias', 'documentos-troca-veiculo', 'documentos-aprs',
     'relatorios-km', 'relatorios-registro-dia', 'relatorios-ponto', 'relatorios-auditoria',
     'relatorios-solicitacoes', 'relatorios-ferramentas', 'relatorios-epis', 'relatorios-insumos',
     'relatorios-baixas', 'relatorios-rma', 'relatorios-levantamentos',

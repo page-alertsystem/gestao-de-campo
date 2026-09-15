@@ -1,7 +1,7 @@
 import { FormEvent, type ComponentType, type ReactNode, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle, Bell, Boxes, CalendarClock, CarFront, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck, ClipboardList,
-  Download, FileBarChart, FolderOpen, Home, LogOut, MapPin, Menu, PackageCheck, Plus, Route,
+  Download, FileBarChart, FileCheck2, FolderOpen, Home, LogOut, MapPin, Menu, PackageCheck, Plus, Route,
   Printer, Search, Settings, ShieldCheck, Signal, SignalZero, Users, Warehouse, Wrench, X,
 } from 'lucide-react'
 import { KmForm } from './KmForm'
@@ -23,6 +23,7 @@ import { itemAuditStatus, itemIdentifier, latestItemAudit, personalInventory, up
 import { inventoryPrintDocument, type PrintDocument } from './inventoryPrint'
 import { PrintDialog } from './PrintDialog'
 import { recordCompletedAudit } from './auditChecklist'
+import { AprApprovedPage } from './AprModule'
 
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; formOpenedAt: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
@@ -52,6 +53,7 @@ const operationPages: { id: Page; label: string; icon: ComponentType<{ size?: nu
   { id: 'operacao-km', label: 'Relatório de KM', icon: CarFront },
   { id: 'operacao-dia', label: 'Registro do dia', icon: ClipboardCheck },
   { id: 'operacao-ponto', label: 'Esqueci meu ponto', icon: CalendarClock },
+  { id: 'operacao-apr', label: 'APR Aprovada', icon: FileCheck2 },
 ]
 const personalPages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'pessoal-ferramentas', label: 'Ferramentas', icon: Wrench },
@@ -76,6 +78,7 @@ const maintenancePages: { id: Page; label: string; icon: ComponentType<{ size?: 
 const documentPages: { id: Page; section: DocumentSection; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'documentos-auditorias', section: 'audits', label: 'Auditorias', icon: ClipboardCheck },
   { id: 'documentos-troca-veiculo', section: 'vehicle-change', label: 'Troca de veículo', icon: CarFront },
+  { id: 'documentos-aprs', section: 'aprs', label: 'APRs', icon: FileCheck2 },
 ]
 const reportPages: { id: Page; reportId: ReportId; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'relatorios-km', reportId: 'km', label: 'KM', icon: CarFront },
@@ -399,7 +402,8 @@ export default function App() {
       <main className="page-content">
         {toast && <div className="toast" role="status"><CheckCircle2 size={19} />{toast}</div>}
         {visiblePage === 'inicio' && <Dashboard data={data} allowedPages={allowedPages} profiles={currentProfiles} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} onRequest={() => setRequestOpen(true)} />}
-        {isOperationPage(visiblePage) && <OperationPage section={visiblePage} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
+        {['operacao-km', 'operacao-dia', 'operacao-ponto'].includes(visiblePage) && <OperationPage section={visiblePage} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
+        {visiblePage === 'operacao-apr' && <AprApprovedPage data={data} onChange={updateData} />}
         {visiblePage === 'gestao-auditoria' && <AuditPage data={data} allowedCategories={canAuditAll ? ['Ferramentas', 'EPIs', 'Escadas'] : ['Escadas']} onStart={setActiveAudit} />}
         {visiblePage === 'gestao-solicitacoes' && <StockRequestsPage data={data} onNewRequest={() => setRequestOpen(true)} />}
         {visiblePage === 'gestao-levantamento' && <SurveyPage data={data} onChange={updateData} />}

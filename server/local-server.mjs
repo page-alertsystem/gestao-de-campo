@@ -299,6 +299,7 @@ function extractPdfDocuments(data) {
   const groups = [
     { type: 'auditoria', records: Array.isArray(clone.audits) ? clone.audits : [] },
     { type: 'troca-veiculo', records: Array.isArray(clone.kmRecords) ? clone.kmRecords.filter(record => record.changeDriver) : [] },
+    { type: 'apr-aprovada', records: Array.isArray(clone.aprRecords) ? clone.aprRecords : [] },
   ]
   const insert = database.prepare(`INSERT INTO documents (storage_key, record_type, record_id, file_name, created_at) VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(storage_key) DO UPDATE SET file_name = excluded.file_name, created_at = excluded.created_at`)

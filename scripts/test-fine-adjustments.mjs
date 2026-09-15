@@ -39,7 +39,7 @@ const request = { id: 'qa-request', code: 'ALT26090099', createdAt: now, request
 const data = { account: { ...person, passwordHash: '' }, people: [person, other], clients: [], vehicles: [], inventory, stockAssignments: [...assignments, { ...assignments[0], id: 'qa-pending', status: 'Pendente' }], materialUsages: [], stockRequests: [request], audits: [
   { id: 'audit-old', personId: person.id, category: 'Ferramentas', auditorName: person.name, auditedName: person.name, startedAt: '2026-01-01T12:00:00Z', completedAt: '2026-01-01T12:05:00Z', nextAuditDate: '2026-02-01', pdfFileName: 'anterior.pdf', results: [{ inventoryItemId: inventory[0].id, equipment: inventory[0].equipment, code: inventory[0].code, currentIdentifier: 'ID antigo', newIdentifier: 'ID vigente', observation: 'Precisa de revisão.', answers: [], photo: '', approved: false }] },
   { id: 'audit-other', personId: other.id, category: 'Ferramentas', auditorName: other.name, auditedName: other.name, startedAt: now, completedAt: now, nextAuditDate: today, pdfFileName: 'outro.pdf', results: [{ inventoryItemId: inventory[0].id, equipment: inventory[0].equipment, code: inventory[0].code, answers: [], photo: '', approved: true }] },
-], trajectories: [{ id: 'qa-day', type: 'Encontro', author: person.name, declaredDate: today, declaredTime: '10:00', recordedAt: now, client: 'Cliente teste', observation: '', team: [], pendingSync: false }, { id: 'qa-other-day', type: 'REGISTRO PRIVADO DE OUTRA PESSOA', author: other.name, declaredDate: today, declaredTime: '10:00', recordedAt: now, client: '', observation: '', team: [], pendingSync: false }], kmRecords: [], rmaRequests: [], surveyRequests: [], notifications: [], permissions: [] }
+], trajectories: [{ id: 'qa-day', type: 'Encontro', author: person.name, declaredDate: today, declaredTime: '10:00', recordedAt: now, client: 'Cliente teste', observation: '', team: [], pendingSync: false }, { id: 'qa-other-day', type: 'REGISTRO PRIVADO DE OUTRA PESSOA', author: other.name, declaredDate: today, declaredTime: '10:00', recordedAt: now, client: '', observation: '', team: [], pendingSync: false }], kmRecords: [], rmaRequests: [], surveyRequests: [], aprRecords: [], notifications: [], permissions: [] }
 
 const state = () => page.evaluate(() => new Promise((resolve, reject) => { const open = indexedDB.open('gio-local-v1', 1); open.onsuccess = () => { const db = open.result; const get = db.transaction('application').objectStore('application').get('state'); get.onsuccess = () => { resolve(get.result); db.close() }; get.onerror = reject }; open.onerror = reject }))
 const nav = async (group, child) => { const menu = page.locator('.main-nav'); if (!child || !(await menu.getByRole('button', { name: child, exact: true }).isVisible())) await menu.getByRole('button', { name: group, exact: true }).click(); if (child) await menu.getByRole('button', { name: child, exact: true }).click() }
@@ -56,6 +56,57 @@ try {
   assert.ok((await page.locator('.home-quick-links').innerText()).includes('1 aguardando sua confirmação'))
   assert.ok(!(await page.locator('#home-latest-records').innerText()).includes('REGISTRO PRIVADO'))
   await page.screenshot({ path: path.join(output, 'home.png'), fullPage: true })
+
+  // APR approved: multiple registered/external technicians, repeated photos,
+  // centered signature step, optional download and document archive.
+  await nav('Operação', 'APR Aprovada')
+  await page.getByRole('button', { name: 'Adicionar APR' }).click()
+  await page.getByRole('checkbox', { name: person.name }).check()
+  await page.getByRole('checkbox', { name: other.name }).check()
+  await page.getByRole('button', { name: 'Outro técnico' }).click()
+  await page.getByLabel('Nome do outro técnico').fill('Técnico Externo Um')
+  await page.getByRole('button', { name: 'Adicionar nome' }).click()
+  await page.getByLabel('Nome do outro técnico').fill('Técnico Externo Dois')
+  await page.getByRole('button', { name: 'Adicionar nome' }).click()
+  await page.getByLabel('Cliente', { exact: true }).fill('Cliente APR Teste')
+  await page.getByLabel('Unidade', { exact: true }).fill('Unidade Centro')
+  await page.getByLabel('Data da liberação').fill('2026-09-15')
+  await page.getByLabel('Horário da liberação').fill('14:35')
+  await page.getByLabel('Descrição da atividade').fill('Atividade liberada após conferência completa dos riscos, recursos, equipe e medidas preventivas aplicáveis.')
+  const aprPhotoGroups = page.locator('.apr-photo-group')
+  await aprPhotoGroups.nth(0).locator('input[type=file]').setInputFiles('public/alert-logo.png')
+  await aprPhotoGroups.nth(0).locator('.apr-photo-list img').waitFor()
+  await aprPhotoGroups.nth(0).locator('input[type=file]').setInputFiles('public/alert-logo.png')
+  await page.waitForFunction(() => document.querySelectorAll('.apr-photo-group')[0]?.querySelectorAll('.apr-photo-list img').length === 2)
+  await aprPhotoGroups.nth(1).locator('input[type=file]').setInputFiles('public/alert-logo.png')
+  await aprPhotoGroups.nth(1).locator('.apr-photo-list img').waitFor()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: path.join(output, 'apr-form-mobile.png'), fullPage: true, animations: 'disabled' })
+  await page.setViewportSize({ width: 1440, height: 1050 })
+  await page.getByRole('button', { name: /Toque para assinar/ }).click()
+  await page.getByRole('dialog', { name: /Assinatura de Pessoa de Teste/ }).waitFor()
+  const aprCanvas = await page.locator('.apr-signature-modal canvas').boundingBox()
+  await page.mouse.move(aprCanvas.x + 35, aprCanvas.y + 95); await page.mouse.down(); await page.mouse.move(aprCanvas.x + 230, aprCanvas.y + 110, { steps: 15 }); await page.mouse.up()
+  await page.getByRole('button', { name: 'Registrar assinatura' }).click()
+  await page.getByRole('button', { name: 'Concluir APR' }).click()
+  await page.getByRole('dialog', { name: 'Deseja baixar esse PDF?' }).waitFor()
+  assert.ok((await page.getByRole('dialog', { name: 'Deseja baixar esse PDF?' }).innerText()).includes('Documentos → APRs'))
+  const aprDownload = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Baixar PDF' }).click()
+  await (await aprDownload).saveAs(path.join(output, 'apr-approved.pdf'))
+  const aprState = await state()
+  assert.equal(aprState.aprRecords.length, 1)
+  assert.deepEqual(aprState.aprRecords[0].technicians, [person.name, other.name, 'Técnico Externo Um', 'Técnico Externo Dois'])
+  assert.equal(aprState.aprRecords[0].frontPhotoCount, 2)
+  assert.equal(aprState.aprRecords[0].backPhotoCount, 1)
+  assert.ok(aprState.aprRecords[0].pdfData.startsWith('data:application/pdf'))
+  await nav('Documentos', 'APRs')
+  const aprDocumentsText = await page.locator('.documents-table').innerText()
+  assert.ok(aprDocumentsText.includes('Cliente APR Teste'))
+  assert.ok(aprDocumentsText.includes('Técnico Externo Dois'))
+  assert.ok(aprDocumentsText.includes('15/09/2026 às 14:35'))
+  assert.equal(await page.getByRole('button', { name: 'Baixar PDF' }).count(), 1)
+
   await nav('Pessoal', 'Ferramentas')
   assert.equal(await page.getByRole('button', { name: 'Imprimir este bloco' }).count(), 3)
   assert.ok((await page.locator('tbody').first().innerText()).includes('Não aprovado'))
@@ -300,7 +351,7 @@ try {
   assert.ok(cancelledReview.inventory.every(item => !item.ladderRestriction))
   assert.equal(cancelledReview.audits.length, multiSeed.audits.length)
   assert.deepEqual(errors, [])
-  console.log('PASS: base flows; ladder 12 questions/three answers; accidental selection/cancel without side effects; final review lists only confirmed NC; correction preserves answers/photo/notes; status changes only with signed completion; PDFs; no JS errors.')
+  console.log('PASS: base flows; APR approved with multiple technicians/photos/signature/document; ladder 12 questions/three answers; accidental selection/cancel without side effects; final review lists only confirmed NC; correction preserves answers/photo/notes; status changes only with signed completion; PDFs; no JS errors.')
 } finally {
   await browser.close()
   await server.close()

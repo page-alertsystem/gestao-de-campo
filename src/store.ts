@@ -147,6 +147,25 @@ export type SurveyRequest = {
   integrationError?: string
 }
 
+export type AprRecord = {
+  id: string
+  createdAt: string
+  createdById: string
+  createdByName: string
+  technicians: string[]
+  client: string
+  unit: string
+  releaseDate: string
+  releaseTime: string
+  description: string
+  frontPhotoCount: number
+  backPhotoCount: number
+  signedBy: string
+  pdfFileName: string
+  pdfData?: string
+  pdfStorageKey?: string
+}
+
 export type AppData = {
   account: AdminAccount
   people: Person[]
@@ -161,6 +180,7 @@ export type AppData = {
   audits: AuditRecord[]
   rmaRequests: RmaRequest[]
   surveyRequests: SurveyRequest[]
+  aprRecords: AprRecord[]
   notifications: Notification[]
   permissions: string[]
 }
@@ -300,6 +320,16 @@ export function normalizeAppData(stored: AppData): AppData {
       status: item.status ?? 'Aguardando integração Movidesk',
       resolved: item.resolved ?? String(item.status ?? '').toLocaleLowerCase('pt-BR').includes('resolvid'),
     })),
+    aprRecords: (stored.aprRecords ?? []).map(item => ({
+      ...item,
+      createdById: item.createdById ?? stored.account.id,
+      createdByName: item.createdByName ?? stored.account.name,
+      technicians: Array.isArray(item.technicians) ? item.technicians : [],
+      frontPhotoCount: item.frontPhotoCount ?? 0,
+      backPhotoCount: item.backPhotoCount ?? 0,
+      signedBy: item.signedBy ?? item.createdByName ?? stored.account.name,
+      pdfFileName: item.pdfFileName ?? `APR Aprovada - ${item.client || 'registro anterior'}.pdf`,
+    })),
   }
 }
 
@@ -316,7 +346,7 @@ export async function loadAppData(): Promise<AppData> {
   const initial: AppData = {
     account,
     people: [{ id: account.id, name: account.name, email: account.email, groups: ['Administrador'], active: true, canLogin: true, passwordHash: account.passwordHash, mustChangePassword: account.mustChangePassword }],
-    clients: [], vehicles: [], trajectories: [], stockRequests: [], kmRecords: [], inventory: [], stockAssignments: [], materialUsages: [], audits: [], rmaRequests: [], surveyRequests: [], notifications: [], permissions: [],
+    clients: [], vehicles: [], trajectories: [], stockRequests: [], kmRecords: [], inventory: [], stockAssignments: [], materialUsages: [], audits: [], rmaRequests: [], surveyRequests: [], aprRecords: [], notifications: [], permissions: [],
   }
   await saveAppData(initial)
   return initial

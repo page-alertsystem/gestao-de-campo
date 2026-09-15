@@ -3,7 +3,7 @@ import type { AppData } from './store'
 import { downloadServerDocument } from './serverApi'
 import { auditSummaryStatus } from './auditChecklist'
 
-export type DocumentSection = 'audits' | 'vehicle-change'
+export type DocumentSection = 'audits' | 'vehicle-change' | 'aprs'
 
 type DocumentRow = {
   id: string
@@ -44,6 +44,7 @@ async function downloadPdf(row: DocumentRow) {
 
 export function DocumentsPage({ data, section }: { data: AppData; section: DocumentSection }) {
   const isAudits = section === 'audits'
+  const isAprs = section === 'aprs'
   const rows: DocumentRow[] = isAudits
     ? data.audits.map(audit => {
       const approved = audit.results.filter(result => result.approved).length
@@ -59,7 +60,17 @@ export function DocumentsPage({ data, section }: { data: AppData; section: Docum
         pdfStorageKey: audit.pdfStorageKey,
       }
     })
-    : data.kmRecords.filter(record => record.changeDriver).map(record => ({
+    : isAprs ? data.aprRecords.map(record => ({
+      id: record.id,
+      createdAt: record.createdAt,
+      person: record.createdByName,
+      type: record.technicians.join(', ') || 'Não informado',
+      identification: `${record.client} · ${record.unit}`,
+      details: `${new Date(`${record.releaseDate}T12:00:00`).toLocaleDateString('pt-BR')} às ${record.releaseTime}`,
+      fileName: record.pdfFileName,
+      pdfData: record.pdfData,
+      pdfStorageKey: record.pdfStorageKey,
+    })) : data.kmRecords.filter(record => record.changeDriver).map(record => ({
       id: record.id,
       createdAt: record.createdAt,
       person: record.driver,
@@ -74,15 +85,15 @@ export function DocumentsPage({ data, section }: { data: AppData; section: Docum
   const available = orderedRows.filter(row => row.pdfData || row.pdfStorageKey).length
 
   return <>
-    <section className="page-intro"><div><p className="eyebrow">Central de arquivos</p><h2>{isAudits ? 'Documentos de auditoria' : 'Documentos de troca de veículo'}</h2><p>{isAudits ? 'Consulte os relatórios assinados gerados ao final das auditorias.' : 'Consulte os relatórios gerados quando houver troca de condutor do veículo.'}</p></div></section>
+    <section className="page-intro"><div><p className="eyebrow">Central de arquivos</p><h2>{isAudits ? 'Documentos de auditoria' : isAprs ? 'APRs aprovadas' : 'Documentos de troca de veículo'}</h2><p>{isAudits ? 'Consulte os relatórios assinados gerados ao final das auditorias.' : isAprs ? 'Consulte e baixe as APRs aprovadas registradas pela equipe.' : 'Consulte os relatórios gerados quando houver troca de condutor do veículo.'}</p></div></section>
     <section className="document-summary-grid">
       <article className="metric-card"><span><FolderOpen size={21} /></span><div><b>{orderedRows.length}</b><small>Documentos registrados</small></div></article>
       <article className="metric-card"><span><FileCheck2 size={21} /></span><div><b>{available}</b><small>Arquivos disponíveis</small></div></article>
       <article className="metric-card"><span><CalendarDays size={21} /></span><div><b>{orderedRows[0] ? new Date(orderedRows[0].createdAt).toLocaleDateString('pt-BR') : '—'}</b><small>Documento mais recente</small></div></article>
     </section>
     <section className="surface table-surface documents-table">
-      <div className="table-toolbar"><div><p className="eyebrow">{isAudits ? 'Auditorias' : 'Troca de veículo'}</p><h3>PDFs gerados pelo sistema</h3></div><span className="report-count">{orderedRows.length} documentos</span></div>
-      <div className="responsive-table"><table><thead><tr><th>Data</th><th>Pessoa</th><th>Documento</th><th>Identificação</th><th>Outros dados</th><th>Arquivo</th><th>Ação</th></tr></thead><tbody>
+      <div className="table-toolbar"><div><p className="eyebrow">{isAudits ? 'Auditorias' : isAprs ? 'APRs' : 'Troca de veículo'}</p><h3>PDFs gerados pelo sistema</h3></div><span className="report-count">{orderedRows.length} documentos</span></div>
+      <div className="responsive-table"><table><thead><tr><th>Data de criação</th><th>{isAprs ? 'Criado por' : 'Pessoa'}</th><th>{isAprs ? 'Técnicos envolvidos' : 'Documento'}</th><th>{isAprs ? 'Cliente / unidade' : 'Identificação'}</th><th>{isAprs ? 'Data de liberação' : 'Outros dados'}</th><th>Arquivo</th><th>Ação</th></tr></thead><tbody>
         {orderedRows.length ? orderedRows.map(row => <tr key={row.id}>
           <td><span className="document-date"><CalendarDays size={14} />{formatDate(row.createdAt)}</span></td>
           <td><span className="document-person"><UserRound size={14} />{row.person}</span></td>
