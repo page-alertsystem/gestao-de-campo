@@ -13,6 +13,7 @@
     "@vitejs/plugin-react": "latest",
     "jspdf": "^4.2.1",
     "lucide-react": "^1.34.0",
+    "pg": "^8.23.1",
     "react": "latest",
     "react-dom": "latest",
     "typescript": "latest",

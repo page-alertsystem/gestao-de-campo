@@ -14,6 +14,7 @@ vite.config.d.ts
 .gio-server.pid
 .gio-tunnel.pid
 .gio-control.pid
+.gio-publicar-internet
 .logs/
 .gio-data/
 .tools/
@@ -22,3 +23,10 @@ vite.config.d.ts
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Chave de assinatura do app Android (guardar fora do Git)
+*.jks
+keystore-senha.txt
+tools/android-gio-mobile/gen/
+tools/android-gio-mobile/obj/
+tools/android-gio-mobile/bin/

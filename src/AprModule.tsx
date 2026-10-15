@@ -3,6 +3,7 @@ import { AlertTriangle, Camera, CheckCircle2, ChevronRight, Download, FileCheck2
 import { jsPDF } from 'jspdf'
 import type { AppData, AprRecord } from './store'
 import { brandAssets } from './paths'
+import { downloadServerDocument } from './serverApi'
 
 type AprPhoto = { id: string; name: string; data: string }
 type AprSheet = { id: string; front?: AprPhoto; back?: AprPhoto }
@@ -21,7 +22,10 @@ function nowTimeInput() {
 }
 
 function downloadPdf(record: AprRecord) {
-  if (!record.pdfData) return
+  if (!record.pdfData) {
+    if (record.pdfStorageKey) void downloadServerDocument(record.pdfStorageKey, record.pdfFileName).catch(() => undefined)
+    return
+  }
   const link = document.createElement('a')
   link.href = record.pdfData
   link.download = record.pdfFileName

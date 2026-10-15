@@ -1,4 +1,5 @@
 import { normalizeProfiles } from './access'
+import { sha256Hex } from './compat'
 
 export type Person = {
   id: string
@@ -380,6 +381,7 @@ export function formatQuantity(value: number) {
 
 export async function hashPassword(password: string) {
   const bytes = new TextEncoder().encode(`gio-alert-v1:${password}`)
+  if (!globalThis.crypto?.subtle) return sha256Hex(bytes)
   const digest = await crypto.subtle.digest('SHA-256', bytes)
   return Array.from(new Uint8Array(digest)).map(value => value.toString(16).padStart(2, '0')).join('')
 }

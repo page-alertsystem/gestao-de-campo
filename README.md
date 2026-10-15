@@ -15,6 +15,15 @@ pnpm dev
 pnpm build
 ```
 
+## Banco de dados (PostgreSQL)
+
+O servidor guarda os dados no PostgreSQL, com uma tabela por tipo de registro (pessoas, estoque, pedidos, RMA, auditorias etc.), PDFs dentro do banco, sessões persistentes e histórico de alterações (`change_log`). As permissões de cada perfil são verificadas no servidor.
+
+- Instalação nesta máquina: execute `scripts\instalar-postgres.ps1` (instala o PostgreSQL, cria o banco `gio`, grava `DATABASE_URL` no `.env.server`, importa o banco antigo SQLite, recompila e reinicia o GIO).
+- Estrutura: `server/db/schema.sql`. Acesso aos dados: `server/db/postgres.mjs`.
+- Importação manual de um `.gio-data` antigo: `node scripts/migrar-sqlite-para-postgres.mjs C:\caminho\.gio-data`.
+- Requisito: Node.js 22.13 ou superior.
+
 ## Servidor local desta máquina
 
 O servidor local hospeda o GIO para a rede interna e protege o token usado na comunicação com o Movidesk.

@@ -1,10 +1,10 @@
 import { createServer } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { existsSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DatabaseSync } from 'node:sqlite'
+import { createRepository } from './db/postgres.mjs'
 
 const serverDirectory = dirname(fileURLToPath(import.meta.url))
 const projectDirectory = resolve(serverDirectory, '..')
@@ -16,30 +16,23 @@ const host = process.env.GIO_HOST?.trim() || '0.0.0.0'
 const port = Number(process.env.GIO_PORT || 4173)
 const movideskBaseUrl = (process.env.MOVIEDESK_API_BASE || 'https://api.movidesk.com/public/v1').replace(/\/$/, '')
 const requestLimitBytes = 120 * 1024 * 1024
+const smallRequestLimitBytes = 64 * 1024
 const movideskRequests = []
+const loginAttempts = new Map()
 let returnCallCatalogCache = null
-const sessions = new Map()
-const dataDirectory = resolve(process.env.GIO_DATA_DIR?.trim() || join(projectDirectory, '.gio-data'))
-const documentsDirectory = join(dataDirectory, 'documents')
-mkdirSync(documentsDirectory, { recursive: true })
-const database = new DatabaseSync(join(dataDirectory, 'gio.db'))
-database.exec(`
-  PRAGMA journal_mode = WAL;
-  PRAGMA foreign_keys = ON;
-  CREATE TABLE IF NOT EXISTS app_state (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    data TEXT NOT NULL,
-    revision INTEGER NOT NULL DEFAULT 1,
-    updated_at TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS documents (
-    storage_key TEXT PRIMARY KEY,
-    record_type TEXT NOT NULL,
-    record_id TEXT NOT NULL,
-    file_name TEXT NOT NULL,
-    created_at TEXT NOT NULL
-  );
-`)
+
+if (!process.env.DATABASE_URL?.trim()) {
+  console.error('DATABASE_URL não encontrado no .env.server. Execute scripts\\instalar-postgres.ps1 para configurar o PostgreSQL.')
+  process.exit(1)
+}
+const repository = createRepository(process.env.DATABASE_URL.trim())
+try {
+  await repository.migrate()
+} catch (error) {
+  console.error(`Não foi possível conectar ao PostgreSQL: ${error.message}`)
+  process.exit(1)
+}
+
 const allowedOrigins = new Set([
   `http://localhost:${port}`,
   `http://127.0.0.1:${port}`,
@@ -50,6 +43,7 @@ const mimeTypes = new Map([
   ['.html', 'text/html; charset=utf-8'], ['.js', 'text/javascript; charset=utf-8'], ['.css', 'text/css; charset=utf-8'],
   ['.json', 'application/json; charset=utf-8'], ['.png', 'image/png'], ['.jpg', 'image/jpeg'], ['.jpeg', 'image/jpeg'],
   ['.svg', 'image/svg+xml'], ['.ico', 'image/x-icon'], ['.webmanifest', 'application/manifest+json; charset=utf-8'],
+  ['.apk', 'application/vnd.android.package-archive'],
 ])
 
 if (!existsSync(join(distDirectory, 'index.html'))) {
@@ -59,22 +53,33 @@ if (!existsSync(join(distDirectory, 'index.html'))) {
 
 const server = createServer(async (request, response) => {
   setSecurityHeaders(request, response)
-  const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`)
 
   try {
+    let url
+    try {
+      url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`)
+      decodeURIComponent(url.pathname)
+    } catch {
+      return sendJson(response, 400, { error: 'Endereço inválido.' })
+    }
     if (request.method === 'OPTIONS') return handleOptions(request, response)
     if (!originAllowed(request)) return sendJson(response, 403, { error: 'Origem não autorizada para acessar o servidor GIO.' })
-    if (url.pathname === '/api/health' && request.method === 'GET') return sendHealth(response)
+    if (url.pathname === '/api/health' && request.method === 'GET') return await sendHealth(response)
     if (url.pathname === '/api/setup/state' && request.method === 'POST') return await setupCentralState(request, response)
     if (url.pathname === '/api/auth/login' && request.method === 'POST') return await login(request, response)
 
-    const session = authenticateRequest(request)
+    const session = url.pathname.startsWith('/api/') ? await authenticateRequest(request) : null
     if (url.pathname.startsWith('/api/') && !session) return sendJson(response, 401, { error: 'Sessão inválida ou expirada. Entre novamente na GIO.' })
-    if (url.pathname === '/api/state' && request.method === 'GET') return getCentralState(response, session)
+    if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
+      await repository.deleteSession(session.token)
+      return sendJson(response, 200, { ok: true })
+    }
+    if (url.pathname === '/api/state' && request.method === 'GET') return await getCentralState(response, session)
     if (url.pathname === '/api/state' && request.method === 'PUT') return await updateCentralState(request, response, session)
+    if (session?.mustChangePassword && url.pathname.startsWith('/api/')) return sendJson(response, 403, { error: 'Troque a senha provisória antes de continuar.' })
     if (url.pathname.startsWith('/api/documents/') && request.method === 'GET') {
       const storageKey = decodeURIComponent(url.pathname.slice('/api/documents/'.length))
-      return await downloadDocument(storageKey, response)
+      return await downloadDocument(storageKey, response, session)
     }
     if (url.pathname === '/api/movidesk/rma' && request.method === 'POST') return await createRmaTicket(request, response)
     if (url.pathname === '/api/movidesk/rma/photo' && request.method === 'POST') return await uploadRmaPhoto(request, response)
@@ -89,27 +94,31 @@ const server = createServer(async (request, response) => {
     if (url.pathname.startsWith('/api/')) return sendJson(response, 404, { error: 'Rota não encontrada.' })
     return await serveStatic(url.pathname, response)
   } catch (error) {
+    if (error?.status && error.status < 500) return sendJson(response, error.status, { error: error.message })
     console.error(`[${new Date().toISOString()}]`, error)
     return sendJson(response, 500, { error: 'O servidor local encontrou um erro inesperado.' })
   }
 })
 
-server.listen(port, host, () => {
+server.listen(port, host, async () => {
   console.log(`GIO disponível em http://localhost:${port}`)
   console.log(`Rede local: http://IP-DESTA-MAQUINA:${port}`)
+  console.log('Banco de dados: PostgreSQL conectado')
   console.log(`Movidesk: ${movideskConfiguration().configured ? 'configurado' : 'aguardando token e usuário de integração'}`)
 })
 
 const shutdown = () => server.close(() => {
-  database.close()
-  process.exit(0)
+  repository.close().finally(() => process.exit(0))
 })
 process.on('SIGINT', shutdown)
 process.on('SIGTERM', shutdown)
 
 function originAllowed(request) {
   const origin = String(request.headers.origin || '').trim()
-  return !origin || allowedOrigins.has(origin)
+  if (!origin || allowedOrigins.has(origin)) return true
+  // Mesma origem: a página foi aberta pelo próprio servidor (ex.: http://IP-DO-SERVIDOR:4173).
+  const host = String(request.headers.host || '').trim().toLowerCase()
+  return Boolean(host) && origin.toLowerCase() === `http://${host}`
 }
 
 function handleOptions(request, response) {
@@ -118,232 +127,111 @@ function handleOptions(request, response) {
   response.end()
 }
 
+// Só aceita como "local" a conexão direta desta máquina; requisições que chegam
+// por túnel/proxy (cloudflared, etc.) trazem cabeçalhos de encaminhamento.
 function isLoopbackRequest(request) {
   const address = String(request.socket.remoteAddress || '').replace(/^::ffff:/, '')
-  return address === '127.0.0.1' || address === '::1'
-}
-
-function stateRow() {
-  return database.prepare('SELECT data, revision, updated_at FROM app_state WHERE id = 1').get()
-}
-
-function stateForClient() {
-  const row = stateRow()
-  if (!row) return null
-  return { data: JSON.parse(String(row.data)), revision: Number(row.revision), updatedAt: String(row.updated_at) }
+  const proxied = ['cf-connecting-ip', 'cf-ray', 'x-forwarded-for', 'forwarded', 'x-real-ip'].some(header => request.headers[header])
+  return !proxied && (address === '127.0.0.1' || address === '::1')
 }
 
 async function setupCentralState(request, response) {
   if (!isLoopbackRequest(request)) return sendJson(response, 403, { error: 'A configuração inicial só pode ser feita nesta máquina.' })
-  if (stateRow()) return sendJson(response, 409, { error: 'O armazenamento central já foi configurado.' })
+  if (await repository.isConfigured()) return sendJson(response, 409, { error: 'O armazenamento central já foi configurado.' })
   const body = await readJsonBody(request)
   const data = body?.data
   if (!validAppState(data)) return sendJson(response, 400, { error: 'Os dados locais não são válidos para iniciar o servidor.' })
-  const stored = storeCentralState(data, null)
-  const session = createSession(String(data.account.id || ''))
-  return sendJson(response, 201, { configured: true, revision: stored.revision, updatedAt: stored.updatedAt, ...session })
+  const result = await repository.setup(data)
+  const session = await repository.createSession(result.accountId)
+  return sendJson(response, 201, { configured: true, revision: result.revision, updatedAt: new Date().toISOString(), ...session })
+}
+
+function loginBlocked(key) {
+  const entry = loginAttempts.get(key)
+  if (!entry) return false
+  if (entry.until && entry.until > Date.now()) return true
+  if (entry.until && entry.until <= Date.now()) loginAttempts.delete(key)
+  return false
+}
+
+// 5 erros seguidos para o mesmo e-mail (ou 50 vindos do mesmo endereço) bloqueiam por 5 minutos.
+function registerLoginFailure(key) {
+  const entry = loginAttempts.get(key) || { count: 0, until: 0 }
+  entry.count += 1
+  const limit = key.startsWith('ip:') ? 50 : 5
+  if (entry.count >= limit) entry.until = Date.now() + 5 * 60 * 1000
+  loginAttempts.set(key, entry)
 }
 
 async function login(request, response) {
-  const body = await readJsonBody(request)
+  const body = await readJsonBody(request, smallRequestLimitBytes)
   const email = String(body?.email || '').trim().toLowerCase()
   const password = String(body?.password || '')
-  const state = stateForClient()
-  if (!state) return sendJson(response, 503, { error: 'O armazenamento central ainda não foi configurado nesta máquina.' })
-  const legacyAccount = state.data?.account
-  const person = (Array.isArray(state.data?.people) ? state.data.people : []).find(item => item?.active !== false && item?.canLogin === true && String(item?.email || '').trim().toLowerCase() === email)
-  const isLegacyAccount = person && (String(person.id) === String(legacyAccount?.id) || String(person.email || '').trim().toLowerCase() === String(legacyAccount?.email || '').trim().toLowerCase())
-  const expectedHash = String(person?.passwordHash || (isLegacyAccount ? legacyAccount?.passwordHash : '') || '')
-  const informedHash = hashPassword(password)
-  if (!email || !password || !person || !expectedHash || !safeEqual(informedHash, expectedHash)) {
+  const socketAddress = String(request.socket.remoteAddress || '').replace(/^::ffff:/, '')
+  const tunneled = (socketAddress === '127.0.0.1' || socketAddress === '::1') && request.headers['cf-connecting-ip']
+  const address = tunneled ? String(request.headers['cf-connecting-ip']) : socketAddress
+  const keys = [`ip:${address}`, `email:${email}`]
+  if (keys.some(loginBlocked)) return sendJson(response, 429, { error: 'Muitas tentativas de login. Aguarde 5 minutos e tente novamente.' })
+  if (!(await repository.isConfigured())) return sendJson(response, 503, { error: 'O armazenamento central ainda não foi configurado nesta máquina.' })
+  const person = email && password ? await repository.verifyLogin(email, hashPassword(password)) : null
+  if (!person) {
+    keys.forEach(registerLoginFailure)
     return sendJson(response, 401, { error: 'E-mail ou senha inválidos.' })
   }
-  const session = createSession(String(person.id || ''))
-  return sendJson(response, 200, { ...session, data: stateForAccount(state.data, person.id), revision: state.revision })
+  loginAttempts.delete(`email:${email}`)
+  const session = await repository.createSession(person.id)
+  const state = await repository.loadState(person.id)
+  return sendJson(response, 200, { ...session, data: state.data, revision: state.revision })
 }
 
-function createSession(accountId) {
-  clearExpiredSessions()
-  const token = randomBytes(32).toString('base64url')
-  const expiresAt = Date.now() + 12 * 60 * 60 * 1000
-  sessions.set(token, { accountId, expiresAt })
-  return { token, expiresAt: new Date(expiresAt).toISOString() }
-}
-
-function authenticateRequest(request) {
-  clearExpiredSessions()
+async function authenticateRequest(request) {
   const match = String(request.headers.authorization || '').match(/^Bearer\s+(.+)$/i)
   if (!match) return null
-  const session = sessions.get(match[1]) || null
-  if (!session) return null
-  const state = stateForClient()
-  const person = (Array.isArray(state?.data?.people) ? state.data.people : []).find(item => String(item?.id) === String(session.accountId))
-  if (!person || person.active === false || person.canLogin !== true) {
-    sessions.delete(match[1])
-    return null
-  }
-  return session
-}
-
-function clearExpiredSessions() {
-  const now = Date.now()
-  for (const [token, session] of sessions) if (session.expiresAt <= now) sessions.delete(token)
+  const session = await repository.sessionFor(match[1])
+  return session ? { ...session, token: match[1] } : null
 }
 
 function hashPassword(password) {
   return createHash('sha256').update(`gio-alert-v1:${password}`, 'utf8').digest('hex')
 }
 
-function safeEqual(first, second) {
-  const firstBuffer = Buffer.from(String(first))
-  const secondBuffer = Buffer.from(String(second))
-  return firstBuffer.length === secondBuffer.length && timingSafeEqual(firstBuffer, secondBuffer)
-}
-
 function validAppState(data) {
   return Boolean(data && typeof data === 'object' && data.account?.id && data.account?.email && data.account?.passwordHash && Array.isArray(data.people))
 }
 
-function getCentralState(response, session) {
-  const state = stateForClient()
-  if (!state) return sendJson(response, 404, { error: 'O armazenamento central ainda não foi configurado.' })
-  return sendJson(response, 200, { ...state, data: stateForAccount(state.data, session.accountId) })
+async function getCentralState(response, session) {
+  const state = await repository.loadState(session.accountId)
+  if (!state) return sendJson(response, 401, { error: 'Sessão inválida ou expirada. Entre novamente na GIO.' })
+  return sendJson(response, 200, { ...state, updatedAt: new Date().toISOString() })
 }
 
 async function updateCentralState(request, response, session) {
   const body = await readJsonBody(request)
-  if (!validAppState(body?.data)) return sendJson(response, 400, { error: 'Os dados enviados não são válidos.' })
-  const expectedRevision = Number(body?.revision)
-  const current = stateRow()
-  if (!current) return sendJson(response, 404, { error: 'O armazenamento central ainda não foi configurado.' })
-  if (!Number.isInteger(expectedRevision) || expectedRevision !== Number(current.revision)) {
-    return sendJson(response, 409, { error: 'Os dados foram atualizados por outro dispositivo. Recarregue a GIO antes de tentar novamente.', revision: Number(current.revision) })
+  const data = body?.data
+  if (!data || typeof data !== 'object') return sendJson(response, 400, { error: 'Os dados enviados não são válidos.' })
+  // Com senha provisória, só a troca de senha é aceita.
+  const incoming = session.mustChangePassword ? { people: data.people, account: data.account } : data
+  const result = await repository.applyState(session.accountId, incoming, body?.revision)
+  const payload = { revision: result.revision, updatedAt: new Date().toISOString(), ...result.stats }
+  if (result.needsRefresh) {
+    const state = await repository.loadState(session.accountId)
+    if (state) Object.assign(payload, { data: state.data, revision: state.revision })
   }
-  const currentData = JSON.parse(String(current.data))
-  const stored = storeCentralState(mergeStateForAccount(body.data, currentData, session.accountId), expectedRevision)
-  return sendJson(response, 200, { revision: stored.revision, updatedAt: stored.updatedAt })
+  return sendJson(response, 200, payload)
 }
 
-function stateForAccount(data, accountId) {
-  const clone = structuredClone(data)
-  const person = (Array.isArray(clone.people) ? clone.people : []).find(item => String(item?.id) === String(accountId))
-  if (!person) return clone
-  const legacyAccount = clone.account
-  const isLegacyAccount = String(person.id) === String(legacyAccount?.id)
-  clone.account = {
-    id: String(person.id),
-    name: String(person.name || ''),
-    email: String(person.email || ''),
-    passwordHash: String(person.passwordHash || (isLegacyAccount ? legacyAccount?.passwordHash : '') || ''),
-    mustChangePassword: Boolean(person.mustChangePassword ?? (isLegacyAccount ? legacyAccount?.mustChangePassword : false)),
-  }
-  clone.people = clone.people.map(item => {
-    if (String(item?.id) === String(accountId)) return item
-    const safe = { ...item }
-    delete safe.passwordHash
-    return safe
-  })
-  return clone
-}
-
-function mergeStateForAccount(incoming, current, accountId) {
-  const currentPeople = Array.isArray(current.people) ? current.people : []
-  const incomingPeople = Array.isArray(incoming.people) ? incoming.people : []
-  const signedIn = currentPeople.find(item => String(item?.id) === String(accountId))
-  const administrator = Array.isArray(signedIn?.groups) && signedIn.groups.includes('Administrador')
-
-  let people
-  if (administrator) {
-    people = incomingPeople.map(person => {
-      const previous = currentPeople.find(item => String(item?.id) === String(person?.id))
-      return {
-        ...person,
-        passwordHash: person?.passwordHash || previous?.passwordHash,
-        mustChangePassword: person?.mustChangePassword ?? previous?.mustChangePassword ?? false,
-      }
-    })
-  } else {
-    people = currentPeople.map(person => {
-      if (String(person?.id) !== String(accountId)) return person
-      const informed = incomingPeople.find(item => String(item?.id) === String(accountId))
-      return {
-        ...person,
-        passwordHash: informed?.passwordHash || incoming.account?.passwordHash || person.passwordHash,
-        mustChangePassword: informed?.mustChangePassword ?? incoming.account?.mustChangePassword ?? person.mustChangePassword ?? false,
-      }
-    })
-    incomingPeople.filter(person => !currentPeople.some(item => String(item?.id) === String(person?.id)) && person?.canLogin !== true).forEach(person => people.push(person))
-  }
-
-  const primaryPerson = people.find(person => String(person?.id) === String(current.account?.id))
-  const account = primaryPerson ? {
-    ...current.account,
-    name: String(primaryPerson.name || current.account?.name || ''),
-    email: String(primaryPerson.email || current.account?.email || ''),
-    passwordHash: String(primaryPerson.passwordHash || current.account?.passwordHash || ''),
-    mustChangePassword: Boolean(primaryPerson.mustChangePassword ?? current.account?.mustChangePassword),
-  } : current.account
-  return { ...incoming, account, people }
-}
-
-function storeCentralState(data, expectedRevision) {
-  const sanitized = extractPdfDocuments(data)
-  const current = stateRow()
-  const revision = current ? Number(current.revision) + 1 : 1
-  if (current && expectedRevision !== null && Number(current.revision) !== expectedRevision) throw new Error('Conflito de revisão ao salvar o banco local.')
-  const updatedAt = new Date().toISOString()
-  database.prepare(`INSERT INTO app_state (id, data, revision, updated_at) VALUES (1, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET data = excluded.data, revision = excluded.revision, updated_at = excluded.updated_at`).run(JSON.stringify(sanitized), revision, updatedAt)
-  return { revision, updatedAt }
-}
-
-function extractPdfDocuments(data) {
-  const clone = structuredClone(data)
-  const groups = [
-    { type: 'auditoria', records: Array.isArray(clone.audits) ? clone.audits : [] },
-    { type: 'troca-veiculo', records: Array.isArray(clone.kmRecords) ? clone.kmRecords.filter(record => record.changeDriver) : [] },
-    { type: 'apr-aprovada', records: Array.isArray(clone.aprRecords) ? clone.aprRecords : [] },
-  ]
-  const insert = database.prepare(`INSERT INTO documents (storage_key, record_type, record_id, file_name, created_at) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(storage_key) DO UPDATE SET file_name = excluded.file_name, created_at = excluded.created_at`)
-  for (const group of groups) {
-    for (const record of group.records) {
-      delete record.pdfUrl
-      if (!String(record.pdfData || '').startsWith('data:application/pdf')) continue
-      const parsed = parsePdfData(record.pdfData)
-      const storageKey = String(record.pdfStorageKey || `${group.type}-${record.id}`).replace(/[^a-zA-Z0-9_-]/g, '')
-      if (!storageKey) continue
-      writeFileSync(join(documentsDirectory, `${storageKey}.pdf`), parsed)
-      record.pdfStorageKey = storageKey
-      delete record.pdfData
-      insert.run(storageKey, group.type, String(record.id), String(record.pdfFileName || `${storageKey}.pdf`), String(record.completedAt || record.createdAt || new Date().toISOString()))
-    }
-  }
-  return clone
-}
-
-function parsePdfData(value) {
-  const match = String(value || '').match(/^data:application\/pdf[^,]*;base64,([a-zA-Z0-9+/=\r\n]+)$/)
-  if (!match) throw new Error('O PDF gerado não está em um formato válido.')
-  const buffer = Buffer.from(match[1].replace(/\s/g, ''), 'base64')
-  if (!buffer.length || buffer.length > 80 * 1024 * 1024) throw new Error('O PDF está vazio ou ultrapassa o limite de 80 MB.')
-  return buffer
-}
-
-async function downloadDocument(storageKey, response) {
+async function downloadDocument(storageKey, response, session) {
   if (!/^[a-zA-Z0-9_-]+$/.test(storageKey)) return sendJson(response, 400, { error: 'Identificação de documento inválida.' })
-  const metadata = database.prepare('SELECT file_name FROM documents WHERE storage_key = ?').get(storageKey)
-  const filePath = join(documentsDirectory, `${storageKey}.pdf`)
-  if (!metadata || !existsSync(filePath)) return sendJson(response, 404, { error: 'Documento não encontrado no servidor.' })
-  const content = await readFile(filePath)
-  const safeName = String(metadata.file_name || `${storageKey}.pdf`).replace(/[\r\n"]/g, '')
+  const document = await repository.documentFor(session.accountId, storageKey)
+  if (!document) return sendJson(response, 404, { error: 'Documento não encontrado no servidor.' })
+  const safeName = String(document.fileName || `${storageKey}.pdf`).replace(/[\r\n"]/g, '')
   response.writeHead(200, {
     'Content-Type': 'application/pdf',
-    'Content-Length': content.length,
+    'Content-Length': document.content.length,
     'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(safeName)}`,
     'Cache-Control': 'private, no-store',
   })
-  response.end(content)
+  response.end(document.content)
 }
 
 async function createRmaTicket(request, response) {
@@ -354,7 +242,7 @@ async function createRmaTicket(request, response) {
   try {
     body = await readJsonBody(request)
   } catch (error) {
-    const tooLarge = String(error?.message || '').includes('120 MB')
+    const tooLarge = error?.status === 413 || String(error?.message || '').includes('120 MB')
     return sendJson(response, tooLarge ? 413 : 400, { error: tooLarge ? 'O conteúdo enviado ultrapassa o limite de 120 MB.' : 'O conteúdo enviado não é válido.' })
   }
   const required = ['localCode', 'title', 'client', 'equipment', 'withdrawalDate', 'technician', 'details']
@@ -453,7 +341,7 @@ async function uploadRmaPhoto(request, response) {
   try {
     body = await readJsonBody(request)
   } catch (error) {
-    const tooLarge = String(error?.message || '').includes('120 MB')
+    const tooLarge = error?.status === 413 || String(error?.message || '').includes('120 MB')
     return sendJson(response, tooLarge ? 413 : 400, { error: tooLarge ? 'O conteúdo enviado ultrapassa o limite de 120 MB.' : 'O conteúdo enviado não é válido.' })
   }
   const internalId = String(body.internalId ?? '').trim()
@@ -478,7 +366,7 @@ async function createSurveyTicket(request, response) {
   try {
     body = await readJsonBody(request)
   } catch (error) {
-    const tooLarge = String(error?.message || '').includes('120 MB')
+    const tooLarge = error?.status === 413 || String(error?.message || '').includes('120 MB')
     return sendJson(response, tooLarge ? 413 : 400, { error: tooLarge ? 'O conteúdo enviado ultrapassa o limite de 120 MB.' : 'O conteúdo enviado não é válido.' })
   }
   const required = ['localCode', 'client', 'startDate', 'endDate', 'area', 'details', 'requestedBy']
@@ -624,7 +512,7 @@ async function createReturnCallTicket(request, response) {
   try {
     body = await readJsonBody(request)
   } catch (error) {
-    const tooLarge = String(error?.message || '').includes('120 MB')
+    const tooLarge = error?.status === 413 || String(error?.message || '').includes('120 MB')
     return sendJson(response, tooLarge ? 413 : 400, { error: tooLarge ? 'O conteúdo enviado ultrapassa o limite de 120 MB.' : 'O conteúdo enviado não é válido.' })
   }
   const required = ['localCode', 'client', 'urgency', 'category', 'date', 'description', 'openedBy', 'photo']
@@ -741,13 +629,22 @@ function movideskConfiguration() {
   return { configured: missing.length === 0, missing, token, requesterId }
 }
 
-function sendHealth(response) {
+async function sendHealth(response) {
   const movidesk = movideskConfiguration()
-  const documents = database.prepare('SELECT COUNT(*) AS total FROM documents').get()
-  return sendJson(response, 200, {
-    application: 'GIO', status: 'online', serverTime: new Date().toISOString(),
+  let databaseOnline = true
+  let configured = false
+  let storedDocuments = 0
+  try {
+    await repository.ping()
+    configured = await repository.isConfigured()
+    storedDocuments = await repository.documentCount()
+  } catch {
+    databaseOnline = false
+  }
+  return sendJson(response, databaseOnline ? 200 : 503, {
+    application: 'GIO', status: databaseOnline ? 'online' : 'database-offline', serverTime: new Date().toISOString(),
     movideskConfigured: movidesk.configured, missingConfiguration: movidesk.missing,
-    centralStorageConfigured: Boolean(stateRow()), storageType: 'SQLite', storedDocuments: Number(documents?.total || 0),
+    centralStorageConfigured: configured, storageType: 'PostgreSQL', storedDocuments,
   })
 }
 
@@ -883,7 +780,9 @@ async function serveStatic(pathname, response) {
   try {
     if ((await stat(filePath)).isDirectory()) filePath = join(filePath, 'index.html')
   } catch {
-    filePath = join(distDirectory, 'index.html')
+    // Rotas desconhecidas: /mobile/* abre o GIO Mobile; o resto abre o GIO completo.
+    const mobileIndex = join(distDirectory, 'mobile', 'index.html')
+    filePath = (relativePath === 'mobile' || relativePath.startsWith(`mobile${sep}`)) && existsSync(mobileIndex) ? mobileIndex : join(distDirectory, 'index.html')
   }
   const content = await readFile(filePath)
   const extension = extname(filePath).toLowerCase()
@@ -894,7 +793,7 @@ async function serveStatic(pathname, response) {
   response.end(content)
 }
 
-function readJsonBody(request) {
+function readJsonBody(request, limitBytes = requestLimitBytes) {
   return new Promise((resolveBody, rejectBody) => {
     let size = 0
     let tooLarge = false
@@ -902,7 +801,7 @@ function readJsonBody(request) {
     request.on('data', chunk => {
       if (tooLarge) return
       size += chunk.length
-      if (size > requestLimitBytes) {
+      if (size > limitBytes) {
         tooLarge = true
         chunks.length = 0
         return
@@ -910,8 +809,8 @@ function readJsonBody(request) {
       chunks.push(chunk)
     })
     request.on('end', () => {
-      if (tooLarge) return rejectBody(new Error('Requisição maior que 120 MB.'))
-      try { resolveBody(JSON.parse(Buffer.concat(chunks).toString('utf8'))) } catch { rejectBody(new Error('JSON inválido.')) }
+      if (tooLarge) return rejectBody(Object.assign(new Error('Os dados enviados ultrapassam o tamanho permitido.'), { status: 413 }))
+      try { resolveBody(JSON.parse(Buffer.concat(chunks).toString('utf8'))) } catch { rejectBody(Object.assign(new Error('JSON inválido.'), { status: 400 })) }
     })
     request.on('error', rejectBody)
   })

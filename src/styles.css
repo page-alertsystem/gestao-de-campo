@@ -110,3 +110,47 @@
 
 /* Com mais menus, a navegação móvel permanece utilizável por rolagem horizontal. */
 @media(max-width:800px){.mobile-nav{display:flex;overflow-x:auto;overflow-y:hidden;justify-content:flex-start}.mobile-nav button{flex:0 0 68px;min-width:68px;position:relative}.mobile-nav::-webkit-scrollbar{display:none}}
+
+/* ===================== GIO Mobile ===================== */
+.switch-version{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:14px;padding:12px;border-radius:12px;background:#fff4e8;color:var(--brand-dark);font-weight:700;text-decoration:none;font-size:14px}
+.switch-version.subtle{background:transparent;color:var(--muted);font-weight:600;font-size:13px}
+.login-page.mobile-variant{grid-template-columns:1fr}.login-page.mobile-variant .login-message{display:none}.login-page.mobile-variant .login-panel{padding:28px 20px}.login-page.mobile-variant .mobile-login-brand{display:flex;align-items:center;gap:10px;margin-bottom:20px}.login-page.mobile-variant .mobile-login-brand b{font-size:24px}
+.login-page.mobile-variant input{font-size:16px;min-height:50px}.login-page.mobile-variant .primary-button{min-height:54px;font-size:16px}
+.m-shell{min-height:100vh;background:#f3f4f5;padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+.m-topbar{position:sticky;top:0;z-index:20;height:62px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;padding-top:env(safe-area-inset-top);background:#fff;border-bottom:1px solid var(--line)}
+.m-brand{display:flex;align-items:center;gap:10px}.m-brand img{height:28px}.m-brand b{font-size:19px;letter-spacing:.02em}.m-brand b span{color:var(--brand)}
+.m-back{display:flex;align-items:center;gap:8px;border:0;background:none;padding:8px 4px;color:var(--ink);min-width:0}.m-back b{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m-top-actions{display:flex;align-items:center;gap:10px}
+.m-status{width:30px;height:30px;border-radius:50%;display:grid;place-items:center}.m-status.online{background:#e8f6ee;color:#1f8a4c}.m-status.offline{background:#fdecea;color:var(--danger)}
+.m-avatar{width:38px;height:38px;border-radius:50%;border:0;background:var(--green);color:#fff;font-weight:800;font-family:'Manrope';display:grid;place-items:center}.m-avatar.large{width:52px;height:52px;font-size:18px;flex:none}
+.m-banner{display:flex;align-items:center;gap:8px;padding:9px 14px;font-size:13px;font-weight:600}.m-banner.offline{background:#fdecea;color:var(--danger)}.m-banner.sync{background:#fff4e8;color:var(--brand-dark)}
+.m-chips{display:flex;gap:8px;overflow-x:auto;padding:10px 14px;background:#fff;border-bottom:1px solid var(--line);scrollbar-width:none;position:sticky;top:62px;z-index:19}.m-chips::-webkit-scrollbar{display:none}
+.m-chips button{flex:none;border:1px solid var(--line);background:#fff;border-radius:999px;padding:9px 15px;font-weight:700;font-size:14px;color:var(--muted)}.m-chips button.active{background:var(--brand);border-color:var(--brand);color:#fff}
+.m-content{padding:16px 14px 24px}
+.m-content .page-intro{margin-bottom:14px}.m-content .page-intro h2{font-size:22px}.m-content .page-intro p{font-size:14px}
+.m-content input,.m-content select,.m-content textarea{font-size:16px}
+.m-content .primary-button,.m-content .secondary-button{min-height:50px}
+.m-toast{top:72px;left:12px;right:12px}
+.m-tabbar{position:fixed;z-index:22;bottom:0;left:0;right:0;display:grid;height:calc(68px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);background:#fff;border-top:1px solid var(--line);box-shadow:0 -6px 24px rgba(35,38,40,.06)}
+.m-tabbar button{border:0;background:none;display:grid;place-items:center;align-content:center;gap:3px;color:#7b867f;font-size:11px;font-weight:700;position:relative}
+.m-tabbar button.active{color:var(--brand-dark)}.m-tabbar button.active:before{content:'';position:absolute;top:0;width:36px;height:3px;border-radius:0 0 3px 3px;background:var(--brand)}
+.m-home{display:grid;gap:18px}
+.m-hello{background:linear-gradient(135deg,#f58200,#cf6800);color:#fff;border-radius:20px;padding:20px;box-shadow:0 14px 30px rgba(245,130,0,.25)}.m-hello p{margin:0;opacity:.9;font-size:13px;text-transform:capitalize}.m-hello h2{margin:4px 0 6px;font-size:25px}.m-hello small{opacity:.9;font-size:13px}
+.m-section h3{display:flex;align-items:center;justify-content:space-between;margin:0 0 10px;font-size:16px}.m-section h3 span{font-family:'DM Sans';font-size:12px;color:var(--muted);font-weight:600}
+.m-day-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.m-day-button{min-height:92px;border:0;border-radius:18px;background:#fff;box-shadow:var(--shadow);display:grid;place-items:center;align-content:center;gap:8px;color:var(--green);padding:12px}.m-day-button svg{color:var(--brand)}.m-day-button b{font-size:15px}.m-day-button:active{transform:scale(.97);background:#fff4e8}
+.m-tiles{display:grid;gap:10px}
+.m-tile{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:13px;text-align:left;border:0;border-radius:16px;background:#fff;box-shadow:var(--shadow);padding:15px 14px;min-height:72px;color:var(--ink)}.m-tile:active{transform:scale(.98);background:#fff8f0}
+.m-tile>span{width:44px;height:44px;border-radius:13px;background:#fff4e8;color:var(--brand-dark);display:grid;place-items:center}.m-tile b{display:block;font-size:15px}.m-tile small{color:var(--muted);font-size:13px}.m-tile>svg{color:#a3a9ad}
+.m-today{list-style:none;margin:0;padding:0;background:#fff;border-radius:16px;box-shadow:var(--shadow);overflow:hidden}.m-today li{display:flex;gap:11px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}.m-today li:last-child{border:0}.m-today li svg{color:#1f8a4c;flex:none}.m-today b{display:block;font-size:14px}.m-today small{color:var(--muted);font-size:12px}
+.m-empty{margin:0;padding:16px;background:#fff;border-radius:16px;color:var(--muted);font-size:14px;text-align:center}
+.m-download{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:15px;border-radius:16px;background:var(--green);color:#fff;text-decoration:none}.m-download b{display:block}.m-download small{opacity:.8}
+.m-sheet-layer{position:fixed;inset:0;z-index:70;display:flex;align-items:flex-end}.m-sheet-backdrop{position:absolute;inset:0;border:0;background:rgba(20,22,24,.45)}
+.m-sheet{position:relative;width:100%;background:#fff;border-radius:22px 22px 0 0;padding:22px 18px calc(18px + env(safe-area-inset-bottom));display:grid;gap:8px;animation:m-up .18s ease-out}@keyframes m-up{from{transform:translateY(40px);opacity:.6}to{transform:none;opacity:1}}
+.m-sheet-close{position:absolute;right:12px;top:12px;border:0;background:#f1f2f3;border-radius:50%;width:36px;height:36px;display:grid;place-items:center}
+.m-sheet-user{display:flex;gap:13px;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--line);margin-bottom:4px}.m-sheet-user b{display:block;font-size:16px}.m-sheet-user small{display:block;color:var(--muted);font-size:13px}
+.m-sheet-item{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:14px 6px;border:0;background:none;text-align:left;color:var(--ink);text-decoration:none;font-weight:650;font-size:15px}.m-sheet-item.danger{color:var(--danger)}
+.m-sheet-note{margin:6px 0 0;text-align:center;color:var(--muted);font-size:12px}
+/* modais e formulários em tela cheia no celular */
+.m-shell .quick-modal{border-radius:20px 20px 0 0;width:100%;max-width:none;margin-top:auto}
+.m-shell .modal-actions button{min-height:52px}

@@ -1,10 +1,10 @@
 import type { AppData } from './store'
+import { runtimeConfiguration } from './appLinks'
 
 const TOKEN_KEY = 'gio-server-token'
 const EXPIRY_KEY = 'gio-server-token-expiry'
 const localServerPorts = new Set(['4173'])
 
-type RuntimeConfiguration = { apiBaseUrl?: string }
 type LoginResponse = { token: string; expiresAt: string; data: AppData; revision: number; error?: string }
 type SetupResponse = { token: string; expiresAt: string; revision: number; error?: string }
 type HealthResponse = { centralStorageConfigured?: boolean; movideskConfigured?: boolean }
@@ -12,21 +12,34 @@ type HealthResponse = { centralStorageConfigured?: boolean; movideskConfigured?:
 let apiBasePromise: Promise<string> | null = null
 let currentRevision = 0
 let saveQueue: Promise<void> = Promise.resolve()
+let serverDataListener: ((data: AppData) => void) | null = null
+
+/** Recebe o estado mesclado que o servidor devolve quando outra pessoa alterou dados ao mesmo tempo. */
+export function onServerData(listener: ((data: AppData) => void) | null) {
+  serverDataListener = listener
+}
 
 function trimBase(value: string) {
   return value.trim().replace(/\/$/, '')
 }
 
+async function servedByGioServer() {
+  try {
+    const response = await fetch(`${window.location.origin}/api/health`, { cache: 'no-store', headers: { Accept: 'application/json' } })
+    if (!response.ok && response.status !== 503) return false
+    const body = await response.json() as { application?: string }
+    return body.application === 'GIO'
+  } catch {
+    return false
+  }
+}
+
 async function discoverApiBase() {
   if (localServerPorts.has(window.location.port) && ['localhost', '127.0.0.1'].includes(window.location.hostname)) return window.location.origin
-  try {
-    const response = await fetch(`${import.meta.env.BASE_URL}server-config.json`, { cache: 'no-store' })
-    if (!response.ok) return ''
-    const configuration = await response.json() as RuntimeConfiguration
-    return trimBase(String(configuration.apiBaseUrl || ''))
-  } catch {
-    return ''
-  }
+  // Quando a página é servida pelo próprio servidor GIO (ex.: http://IP-DO-SERVIDOR:4173), usa o mesmo endereço.
+  if (window.location.protocol.startsWith('http') && await servedByGioServer()) return window.location.origin
+  const configuration = await runtimeConfiguration()
+  return trimBase(String(configuration.apiBaseUrl || ''))
 }
 
 export function apiBaseUrl() {
@@ -41,6 +54,12 @@ function storeSession(token: string, expiresAt: string, revision: number) {
 }
 
 export function clearServerSession() {
+  const token = sessionStorage.getItem(TOKEN_KEY)
+  if (token) {
+    void apiBaseUrl().then(base => {
+      if (base) return fetch(`${base}/api/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+    }).catch(() => undefined)
+  }
   sessionStorage.removeItem(TOKEN_KEY)
   sessionStorage.removeItem(EXPIRY_KEY)
   currentRevision = 0
@@ -137,8 +156,11 @@ export function saveCentralData(data: AppData) {
       if (response.status === 401) clearServerSession()
       throw new Error(await responseMessage(response))
     }
-    const result = await response.json() as { revision: number }
+    const result = await response.json() as { revision: number; data?: AppData; conflicts?: number; denied?: number }
     currentRevision = Number(result.revision) || currentRevision
+    if (result.data && serverDataListener) serverDataListener(result.data)
+    if (result.conflicts) throw new Error('Algumas alterações não foram salvas porque outra pessoa alterou o mesmo registro. Os dados foram atualizados; confira e refaça se necessário.')
+    if (result.denied) throw new Error('Algumas alterações não foram salvas porque o seu perfil não tem permissão para elas.')
   })
   return saveQueue
 }

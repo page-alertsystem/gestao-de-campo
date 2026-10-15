@@ -16,8 +16,10 @@ import { ReportsPage, type ReportId } from './ReportsModule'
 import { DocumentsPage, type DocumentSection } from './DocumentsModule'
 import { allowedPagesForProfiles, hasProfile, normalizeProfiles, profileDescriptions, profileNames, profileSummary, type Page } from './access'
 import { accountFromPerson, formatQuantity, hashPassword, loadAppData, normalizeAppData, saveAppData, type AppData, type EquipmentType, type InventoryItem } from './store'
-import { clearServerSession, initializeCentralData, loginCentralServer, saveCentralData } from './serverApi'
+import { clearServerSession, initializeCentralData, loginCentralServer, onServerData, saveCentralData } from './serverApi'
 import { brandAssets } from './paths'
+import { MobileHome, MobileShell, mobilePages } from './mobile/MobileShell'
+import { appLinks, isPhone } from './appLinks'
 import { itemAuditStatus, itemIdentifier, latestItemAudit, personalInventory, upcomingPersonalAudits } from './personalInventory'
 import { inventoryPrintDocument, type PrintDocument } from './inventoryPrint'
 import { PrintDialog } from './PrintDialog'
@@ -115,7 +117,8 @@ const localDateInput = (date: Date) => {
 const todayInput = () => localDateInput(new Date())
 const nowInput = () => new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
-export default function App() {
+export default function App({ variant = 'desktop' }: { variant?: 'desktop' | 'mobile' } = {}) {
+  const mobile = variant === 'mobile'
   const [data, setData] = useState<AppData | null>(null)
   const [loading, setLoading] = useState(true)
   const [logged, setLogged] = useState(() => sessionStorage.getItem('gio-admin-session') === '1')
@@ -139,7 +142,7 @@ export default function App() {
 
   useEffect(() => {
     loadAppData().then(async stored => {
-      const central = await initializeCentralData(stored)
+      const central = await initializeCentralData(stored).catch(() => ({ active: true, authenticated: false, data: stored }))
       const ready = normalizeAppData(central.data)
       if (central.active && !central.authenticated) {
         sessionStorage.removeItem('gio-admin-session')
@@ -149,6 +152,15 @@ export default function App() {
       void saveAppData(ready)
       setLoading(false)
     }).catch(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    onServerData(serverData => {
+      const ready = normalizeAppData(serverData)
+      setData(ready)
+      void saveAppData(ready)
+    })
+    return () => onServerData(null)
   }, [])
 
   useEffect(() => {
@@ -240,14 +252,13 @@ export default function App() {
 
   if (loading) return <main className="loading-page"><img src={brandAssets.color} alt="Grupo Alert" /><span>Preparando a GIO...</span></main>
   if (!data) return <main className="loading-page"><AlertTriangle /><b>Não foi possível abrir os dados locais.</b></main>
-  if (!logged) return <Login onLogin={async (email, password) => {
+  if (!logged) return <Login variant={variant} onLogin={async (email, password) => {
     const central = await loginCentralServer(email, password)
     if (central.usedServer) {
       if (central.error || !central.data) return central.error || 'Não foi possível abrir os dados do servidor.'
       const ready = normalizeAppData(central.data)
       setData(ready)
       void saveAppData(ready)
-      void saveCentralData(ready).catch(() => undefined)
       sessionStorage.setItem('gio-admin-session', '1')
       setLogged(true)
       return null
@@ -276,7 +287,7 @@ export default function App() {
 
   const currentPerson = data.people.find(person => person.id === data.account.id)
   const currentProfiles = normalizeProfiles(currentPerson?.groups)
-  const allowedPages = allowedPagesForProfiles(currentProfiles)
+  const allowedPages = mobile ? new Set([...allowedPagesForProfiles(currentProfiles)].filter(item => mobilePages.includes(item))) : allowedPagesForProfiles(currentProfiles)
   const visiblePage: Page = allowedPages.has(page) ? page : 'inicio'
   const visibleAttendancePages = attendancePages.filter(item => allowedPages.has(item.id))
   const visibleOperationPages = operationPages.filter(item => allowedPages.has(item.id))
@@ -303,6 +314,40 @@ export default function App() {
   const activeDocument = visibleDocumentPages.find(item => item.id === visiblePage)
   const title = attendancePages.find(item => item.id === visiblePage)?.label ?? operationPages.find(item => item.id === visiblePage)?.label ?? managementPages.find(item => item.id === visiblePage)?.label ?? personalPages.find(item => item.id === visiblePage)?.label ?? stockPages.find(item => item.id === visiblePage)?.label ?? maintenancePages.find(item => item.id === visiblePage)?.label ?? activeDocument?.label ?? activeReport?.label ?? nav.find(item => item.id === visiblePage)?.label ?? 'Início'
   const initials = data.account.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase()
+
+  const pageBody = <>
+        {visiblePage === 'inicio' && (mobile
+          ? <MobileHome data={data} profiles={currentProfiles} allowedPages={allowedPages} online={online} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} />
+          : <Dashboard data={data} profiles={currentProfiles} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} />)}
+        {visiblePage === 'atendimento-preventiva' && <SystemPreventivePage data={data} onChange={updateData} />}
+        {['operacao-km', 'operacao-dia', 'operacao-ponto'].includes(visiblePage) && <OperationPage section={visiblePage} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
+        {visiblePage === 'operacao-apr' && <AprApprovedPage data={data} onChange={updateData} />}
+        {visiblePage === 'operacao-retorno' && <ReturnCallPage data={data} onChange={updateData} />}
+        {visiblePage === 'gestao-auditoria' && <AuditPage data={data} allowedCategories={canAuditAll ? ['Ferramentas', 'EPIs', 'Escadas'] : ['Escadas']} onStart={setActiveAudit} />}
+        {visiblePage === 'gestao-aprovacao-equipamentos' && <EquipmentApprovalsPage data={data} onChange={updateData} />}
+        {visiblePage === 'gestao-levantamento' && <SurveyPage data={data} onChange={updateData} />}
+        {['pessoal-ferramentas', 'pessoal-epis'].includes(visiblePage) && <StockPage section={visiblePage} data={data} onChange={updateData} />}
+        {visiblePage === 'pessoal-aprovacoes' && <StockApprovals data={data} onChange={updateData} />}
+        {visiblePage === 'estoque-baixas' && <MaterialWriteOffsPage data={data} onChange={updateData} />}
+        {visiblePage === 'estoque-solicitacoes-equipamentos' && <EquipmentStockRequestsPage data={data} onChange={updateData} />}
+        {visiblePage === 'estoque-gerenciamento' && canManageStock && <StockManagement data={data} onChange={updateData} />}
+        {visiblePage === 'manutencao-rma' && <RmaRequestPage data={data} onChange={updateData} />}
+        {visiblePage === 'manutencao-danificados' && <DamagedEquipmentPage data={data} onChange={updateData} />}
+        {activeDocument && <DocumentsPage data={data} section={activeDocument.section} />}
+        {activeReport?.reportId && <ReportsPage key={activeReport.reportId} data={data} reportId={activeReport.reportId} />}
+        {visiblePage === 'relatorios-preventivas' && <SystemPreventiveReportsPage data={data} />}
+        {visiblePage === 'configuracoes' && <SettingsPage data={data} onChange={updateData} />}
+  </>
+  const modals = <>
+    {activeAction && <QuickRegister action={activeAction} online={online} clients={data.clients.filter(item => item.active).map(item => item.name)} technicians={data.people.filter(item => item.active && item.id !== data.account.id).map(item => item.name)} onClose={() => setActiveAction(null)} onSave={register} />}
+    {kmOpen && <KmForm vehicles={data.vehicles.filter(item => item.active)} clients={data.clients.filter(item => item.active).map(item => item.name)} driver={data.account.name} onClose={() => setKmOpen(false)} onComplete={record => { const next = { ...data, kmRecords: [...data.kmRecords, record], vehicles: data.vehicles.map(vehicle => vehicle.plate === record.vehicle ? { ...vehicle, mileage: record.mileage } : vehicle) }; updateData(next); setKmOpen(false); showToast('Relatório de KM registrado com sucesso.') }} />}
+    {activeAudit && <AuditWizard data={data} start={activeAudit} onCancel={() => setActiveAudit(null)} onComplete={audit => { const nextDate = new Date(`${audit.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR'); updateData(recordCompletedAudit(data, audit), `Auditoria concluída e PDF salvo. Próxima auditoria: ${nextDate}.`); setActiveAudit(null) }} />}
+  </>
+
+  if (mobile) return <MobileShell
+    data={data} profiles={currentProfiles} allowedPages={allowedPages} page={visiblePage} title={title} online={online}
+    pendingSync={pendingSync} toast={toast} onNavigate={navigate} onSignOut={signOut}
+  >{pageBody}{modals}</MobileShell>
 
   return <div className="app-shell">
     <aside className={drawer ? 'sidebar open' : 'sidebar'}>
@@ -418,25 +463,7 @@ export default function App() {
 
       <main className="page-content">
         {toast && <div className="toast" role="status"><CheckCircle2 size={19} />{toast}</div>}
-        {visiblePage === 'inicio' && <Dashboard data={data} profiles={currentProfiles} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} />}
-        {visiblePage === 'atendimento-preventiva' && <SystemPreventivePage data={data} onChange={updateData} />}
-        {['operacao-km', 'operacao-dia', 'operacao-ponto'].includes(visiblePage) && <OperationPage section={visiblePage} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
-        {visiblePage === 'operacao-apr' && <AprApprovedPage data={data} onChange={updateData} />}
-        {visiblePage === 'operacao-retorno' && <ReturnCallPage data={data} onChange={updateData} />}
-        {visiblePage === 'gestao-auditoria' && <AuditPage data={data} allowedCategories={canAuditAll ? ['Ferramentas', 'EPIs', 'Escadas'] : ['Escadas']} onStart={setActiveAudit} />}
-        {visiblePage === 'gestao-aprovacao-equipamentos' && <EquipmentApprovalsPage data={data} onChange={updateData} />}
-        {visiblePage === 'gestao-levantamento' && <SurveyPage data={data} onChange={updateData} />}
-        {['pessoal-ferramentas', 'pessoal-epis'].includes(visiblePage) && <StockPage section={visiblePage} data={data} onChange={updateData} />}
-        {visiblePage === 'pessoal-aprovacoes' && <StockApprovals data={data} onChange={updateData} />}
-        {visiblePage === 'estoque-baixas' && <MaterialWriteOffsPage data={data} onChange={updateData} />}
-        {visiblePage === 'estoque-solicitacoes-equipamentos' && <EquipmentStockRequestsPage data={data} onChange={updateData} />}
-        {visiblePage === 'estoque-gerenciamento' && canManageStock && <StockManagement data={data} onChange={updateData} />}
-        {visiblePage === 'manutencao-rma' && <RmaRequestPage data={data} onChange={updateData} />}
-        {visiblePage === 'manutencao-danificados' && <DamagedEquipmentPage data={data} onChange={updateData} />}
-        {activeDocument && <DocumentsPage data={data} section={activeDocument.section} />}
-        {activeReport?.reportId && <ReportsPage key={activeReport.reportId} data={data} reportId={activeReport.reportId} />}
-        {visiblePage === 'relatorios-preventivas' && <SystemPreventiveReportsPage data={data} />}
-        {visiblePage === 'configuracoes' && <SettingsPage data={data} onChange={updateData} />}
+        {pageBody}
       </main>
 
       <nav className="mobile-nav" aria-label="Navegação móvel">
@@ -449,13 +476,13 @@ export default function App() {
       </nav>
     </div>
 
-    {activeAction && <QuickRegister action={activeAction} online={online} clients={data.clients.filter(item => item.active).map(item => item.name)} technicians={data.people.filter(item => item.active && item.id !== data.account.id).map(item => item.name)} onClose={() => setActiveAction(null)} onSave={register} />}
-    {kmOpen && <KmForm vehicles={data.vehicles.filter(item => item.active)} clients={data.clients.filter(item => item.active).map(item => item.name)} driver={data.account.name} onClose={() => setKmOpen(false)} onComplete={record => { const next = { ...data, kmRecords: [...data.kmRecords, record], vehicles: data.vehicles.map(vehicle => vehicle.plate === record.vehicle ? { ...vehicle, mileage: record.mileage } : vehicle) }; updateData(next); setKmOpen(false); showToast('Relatório de KM registrado com sucesso.') }} />}
-    {activeAudit && <AuditWizard data={data} start={activeAudit} onCancel={() => setActiveAudit(null)} onComplete={audit => { const nextDate = new Date(`${audit.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR'); updateData(recordCompletedAudit(data, audit), `Auditoria concluída e PDF salvo. Próxima auditoria: ${nextDate}.`); setActiveAudit(null) }} />}
+    {modals}
   </div>
 }
 
-function Login({ onLogin }: { onLogin: (email: string, password: string) => Promise<string | null> }) {
+function Login({ onLogin, variant = 'desktop' }: { onLogin: (email: string, password: string) => Promise<string | null>; variant?: 'desktop' | 'mobile' }) {
+  const [links, setLinks] = useState<{ desktop: string; mobile: string; androidApk: string } | null>(null)
+  useEffect(() => { void appLinks().then(setLinks) }, [])
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -468,7 +495,7 @@ function Login({ onLogin }: { onLogin: (email: string, password: string) => Prom
     setBusy(false)
     setError(message || '')
   }
-  return <main className="login-page">
+  return <main className={variant === 'mobile' ? 'login-page mobile-variant' : 'login-page'}>
     <section className="login-message">
       <div className="login-brand"><span className="login-logo"><img src={brandAssets.onDark} alt="Grupo Alert" /></span><b>GIO</b></div>
       <p className="eyebrow light">Gestão Integrada de Operações</p>
@@ -478,7 +505,7 @@ function Login({ onLogin }: { onLogin: (email: string, password: string) => Prom
     </section>
     <section className="login-panel">
       <form className="login-card" onSubmit={submit}>
-        <div className="mobile-login-brand"><span className="login-logo"><img src={brandAssets.color} alt="Grupo Alert" /></span><b>GIO</b></div>
+        <div className="mobile-login-brand"><span className="login-logo"><img src={brandAssets.color} alt="Grupo Alert" /></span><b>{variant === 'mobile' ? 'GIO Mobile' : 'GIO'}</b></div>
         <p className="eyebrow">Acesso seguro</p>
         <h2>Bem-vindo à GIO</h2>
         <p className="form-intro">Entre com seu e-mail e senha para continuar.</p>
@@ -488,6 +515,8 @@ function Login({ onLogin }: { onLogin: (email: string, password: string) => Prom
         <button className="primary-button full" type="submit" disabled={busy}>{busy ? 'Verificando...' : 'Entrar na plataforma'} {!busy && <ChevronRight size={18} />}</button>
         <button className="text-button" type="button" onClick={() => setError('Solicite uma nova senha provisória ao administrador da GIO.')}>Preciso de uma nova senha provisória</button>
         <div className="preview-note"><ShieldCheck size={18} /><span>Seu acesso e os menus disponíveis são definidos pelos perfis cadastrados pelo administrador.</span></div>
+        {links && variant === 'desktop' && isPhone() && <a className="switch-version" href={links.mobile}>Está no celular? Abrir o GIO Mobile <ChevronRight size={16} /></a>}
+        {links && variant === 'mobile' && <a className="switch-version subtle" href={links.desktop}>Abrir a versão completa (computador)</a>}
       </form>
     </section>
   </main>
@@ -518,7 +547,7 @@ function Dashboard({ data, profiles, onAction, onNavigate, onKm }: { data: AppDa
   return <>
     <section className="welcome-row">
       <div><p className="eyebrow">{date}</p><h2>Bom dia, {data.account.name.split(' ')[0]}</h2><p>Perfis ativos: {profileSummary(profiles)}.</p></div>
-      <button className="secondary-button"><Download size={17} /> Instalar GIO no celular</button>
+      <button className="secondary-button" onClick={() => { void appLinks().then(links => window.open(links.mobile, '_blank', 'noopener')) }}><Download size={17} /> GIO Mobile (celular)</button>
     </section>
 
     <section className="attention-grid home-quick-links">
