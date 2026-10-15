@@ -17,6 +17,7 @@ const port = Number(process.env.GIO_PORT || 4173)
 const movideskBaseUrl = (process.env.MOVIEDESK_API_BASE || 'https://api.movidesk.com/public/v1').replace(/\/$/, '')
 const requestLimitBytes = 120 * 1024 * 1024
 const movideskRequests = []
+let returnCallCatalogCache = null
 const sessions = new Map()
 const dataDirectory = resolve(process.env.GIO_DATA_DIR?.trim() || join(projectDirectory, '.gio-data'))
 const documentsDirectory = join(dataDirectory, 'documents')
@@ -79,6 +80,8 @@ const server = createServer(async (request, response) => {
     if (url.pathname === '/api/movidesk/rma/photo' && request.method === 'POST') return await uploadRmaPhoto(request, response)
     if (url.pathname === '/api/movidesk/tickets/photo' && request.method === 'POST') return await uploadRmaPhoto(request, response)
     if (url.pathname === '/api/movidesk/survey' && request.method === 'POST') return await createSurveyTicket(request, response)
+    if (url.pathname === '/api/movidesk/return/categories' && request.method === 'GET') return await listReturnCallCategories(response)
+    if (url.pathname === '/api/movidesk/return' && request.method === 'POST') return await createReturnCallTicket(request, response)
     if (url.pathname.startsWith('/api/movidesk/tickets/') && request.method === 'GET') {
       const ticketId = decodeURIComponent(url.pathname.slice('/api/movidesk/tickets/'.length))
       return await retrieveTicket(ticketId, response)
@@ -560,6 +563,147 @@ async function createSurveyTicket(request, response) {
   })
 }
 
+async function listReturnCallCategories(response) {
+  const configuration = movideskConfiguration()
+  if (!configuration.configured) return sendJson(response, 503, { error: 'Integração com o Movidesk ainda não configurada.', missing: configuration.missing })
+
+  if (returnCallCatalogCache && returnCallCatalogCache.expiresAt > Date.now()) {
+    return sendJson(response, 200, returnCallCatalogCache.value)
+  }
+  if (!allowMovideskRequest()) return sendJson(response, 429, { error: 'Limite temporário de chamadas ao Movidesk atingido. Aguarde um minuto.' })
+
+  const query = new URLSearchParams({ token: configuration.token })
+  const movideskResponse = await fetch(`${movideskBaseUrl}/services?${query}`, {
+    headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(30000),
+  })
+  const responseText = await movideskResponse.text()
+  if (!movideskResponse.ok) {
+    console.error(`Movidesk serviços ${movideskResponse.status}: ${safeMovideskError(responseText)}`)
+    return sendJson(response, 502, { error: 'Não foi possível carregar as categorias do Movidesk.', status: movideskResponse.status, detail: safeMovideskError(responseText) })
+  }
+
+  const services = parseJson(responseText)
+  const categoryMap = new Map()
+  for (const service of Array.isArray(services) ? services : []) {
+    const serviceForTicketType = Number(service?.serviceForTicketType)
+    const allowSelection = Number(service?.allowSelection)
+    if (service?.isActive === false || ![1, 2].includes(serviceForTicketType) || (Number.isFinite(allowSelection) && ![1, 3].includes(allowSelection))) continue
+    const serviceId = Number(service?.id || 0)
+    const entries = Array.isArray(service?.categories) ? service.categories : []
+    if (service?.defaultCategory) entries.push(service.defaultCategory)
+    for (const entry of entries) {
+      if (entry && typeof entry === 'object' && entry.isActive === false) continue
+      const name = String(typeof entry === 'string' ? entry : entry?.name || entry?.category || '').trim()
+      if (!name) continue
+      const key = normalizeText(name)
+      if (!categoryMap.has(key)) categoryMap.set(key, {
+        name,
+        serviceFirstLevelId: serviceId > 0 ? serviceId : undefined,
+        serviceName: String(service?.name || '').trim(),
+        defaultUrgency: String((entry && typeof entry === 'object' ? entry.defaultUrgency : '') || service?.defaultUrgency || '').trim(),
+      })
+    }
+  }
+
+  const categories = [...categoryMap.values()].sort((first, second) => first.name.localeCompare(second.name, 'pt-BR'))
+  if (!categories.length) return sendJson(response, 502, { error: 'O Movidesk não devolveu categorias internas disponíveis para este usuário de integração.' })
+  const urgencies = [...new Set([
+    ...categories.map(item => item.defaultUrgency).filter(Boolean),
+    'Baixa', 'Média', 'Alta', 'Urgente',
+  ])]
+  const value = { categories, urgencies, loadedAt: new Date().toISOString() }
+  returnCallCatalogCache = { value, expiresAt: Date.now() + 10 * 60 * 1000 }
+  return sendJson(response, 200, value)
+}
+
+async function createReturnCallTicket(request, response) {
+  const configuration = movideskConfiguration()
+  if (!configuration.configured) return sendJson(response, 503, { error: 'Integração com o Movidesk ainda não configurada.', missing: configuration.missing })
+
+  let body
+  try {
+    body = await readJsonBody(request)
+  } catch (error) {
+    const tooLarge = String(error?.message || '').includes('120 MB')
+    return sendJson(response, tooLarge ? 413 : 400, { error: tooLarge ? 'O conteúdo enviado ultrapassa o limite de 120 MB.' : 'O conteúdo enviado não é válido.' })
+  }
+  const required = ['localCode', 'client', 'urgency', 'category', 'date', 'description', 'openedBy', 'photo']
+  const missing = required.filter(field => !String(body[field] ?? '').trim())
+  if (missing.length) return sendJson(response, 400, { error: 'Preencha todos os campos obrigatórios e anexe uma foto.', missing })
+  if (!String(body.photo).startsWith('data:image/')) return sendJson(response, 400, { error: 'A foto anexada não está em um formato válido.' })
+
+  const requesterId = process.env.MOVIEDESK_RETURN_REQUESTER_ID?.trim() || 'acf45ae5-aae4-41df-'
+  const creator = { id: requesterId }
+  const origin = Number(process.env.MOVIEDESK_ORIGIN || 9)
+  const status = process.env.MOVIEDESK_RETURN_STATUS?.trim() || process.env.MOVIEDESK_STATUS?.trim() || '1 - Aberto'
+  const baseStatus = process.env.MOVIEDESK_RETURN_BASE_STATUS?.trim() || process.env.MOVIEDESK_BASE_STATUS?.trim() || 'New'
+  const action = {
+    type: 1,
+    origin,
+    description: buildReturnCallDescription(body),
+    status,
+    createdBy: creator,
+  }
+  const ticket = {
+    type: 1,
+    subject: `Chamado de retorno: ${String(body.client).trim()}`.slice(0, 128),
+    category: String(body.category).trim(),
+    urgency: String(body.urgency).trim(),
+    status,
+    baseStatus,
+    origin,
+    createdBy: creator,
+    clients: [creator],
+    actions: [action],
+  }
+  const serviceFirstLevelId = Number(body.serviceFirstLevelId || 0)
+  if (serviceFirstLevelId > 0) ticket.serviceFirstLevelId = serviceFirstLevelId
+
+  if (!allowMovideskRequest()) return sendJson(response, 429, { error: 'Limite temporário de chamadas ao Movidesk atingido. Aguarde um minuto.' })
+  const movideskResponse = await fetch(`${movideskBaseUrl}/tickets?token=${encodeURIComponent(configuration.token)}&returnAllProperties=true`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(ticket), signal: AbortSignal.timeout(45000),
+  })
+  const responseText = await movideskResponse.text()
+  if (!movideskResponse.ok) {
+    console.error(`Movidesk chamado de retorno ${movideskResponse.status}: ${safeMovideskError(responseText)}`)
+    return sendJson(response, 502, { error: 'O Movidesk recusou a criação do chamado interno.', status: movideskResponse.status, detail: safeMovideskError(responseText) })
+  }
+
+  const parsed = parseJson(responseText)
+  let ticketDetails = parsed
+  let internalId = extractInternalTicketId(parsed, responseText, movideskResponse.headers.get('location'))
+  let ticketId = extractTicketId(parsed, responseText, movideskResponse.headers.get('location'))
+  let actionId = extractActionId(parsed)
+  if (internalId && (!actionId || !String(parsed?.protocol ?? '').trim())) {
+    const retrieved = await retrieveTicketDetails(internalId, configuration)
+    if (retrieved) {
+      ticketDetails = retrieved
+      ticketId = String(retrieved.protocol ?? ticketId).trim()
+      actionId = extractActionId(retrieved) || actionId
+    }
+  }
+  if (!ticketId) return sendJson(response, 502, { error: 'O Movidesk criou o registro, mas não devolveu o número do ticket.' })
+  internalId = extractInternalTicketId(ticketDetails, String(internalId), '') || internalId
+
+  let photoUploaded = false
+  let attachmentError = ''
+  if (!internalId || !actionId) attachmentError = 'O ticket foi criado, mas o Movidesk não informou a ação para anexar a foto.'
+  else {
+    try {
+      await uploadPhotoToAction({ photo: body.photo, localCode: body.localCode, internalId, actionId, configuration })
+      photoUploaded = true
+    } catch (error) {
+      attachmentError = safeAttachmentError(error)
+      console.error(`Falha ao anexar foto do chamado de retorno ${internalId}: ${attachmentError}`)
+    }
+  }
+
+  return sendJson(response, 201, {
+    ticketId, id: ticketId, internalId, actionId, status, type: 1, photoUploaded, attachmentError, localCode: body.localCode,
+  })
+}
+
 async function retrieveTicket(ticketId, response) {
   const configuration = movideskConfiguration()
   if (!configuration.configured) return sendJson(response, 503, { error: 'Integração com o Movidesk ainda não configurada.', missing: configuration.missing })
@@ -640,6 +784,20 @@ function buildSurveyDescription(body) {
     `Área do levantamento: ${body.area}`,
     `Solicitante: ${body.requestedBy}`,
     `Detalhes da atividade: ${body.details}`,
+    `Registrado no GIO em ${new Date().toLocaleString('pt-BR')}.`,
+  ].map(line => escapeHtml(line).replace(/\r?\n/g, '<br>')).join('<br>')
+}
+
+function buildReturnCallDescription(body) {
+  return [
+    'CHAMADO INTERNO DE RETORNO PELO GIO',
+    `Código GIO: ${body.localCode}`,
+    `Cliente informado: ${body.client}`,
+    `Data informada: ${formatDate(body.date)}`,
+    `Categoria: ${body.category}`,
+    `Urgência: ${body.urgency}`,
+    `Solicitante: ${body.openedBy}`,
+    `Descrição: ${body.description}`,
     `Registrado no GIO em ${new Date().toLocaleString('pt-BR')}.`,
   ].map(line => escapeHtml(line).replace(/\r?\n/g, '<br>')).join('<br>')
 }

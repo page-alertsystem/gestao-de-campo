@@ -45,10 +45,48 @@ export type StockRequest = {
 }
 export type KmRecord = { id: string; createdAt: string; formOpenedAt?: string; declaredDate?: string; declaredTime?: string; vehicle: string; driver: string; mileage: number; client?: string; destination: string; reason?: string; observation?: string; changeDriver: boolean; hasDamage: boolean; damages: { location: string; description: string }[]; latitude?: number; longitude?: number; accuracy?: number; pdfFileName?: string; pdfData?: string; pdfStorageKey?: string }
 export type LadderRestriction = { status: 'Não liberada'; reportedAt: string; personId: string; reportedBy: string; questions: string[] }
-export type InventoryItem = { id: string; equipment: string; brand: string; model: string; category: 'Insumo' | 'Ferramenta pessoal' | 'Ferramenta rotativa' | 'EPI' | 'Escada'; unit: 'Unidade' | 'Caixa' | 'Metros' | 'Rolo'; quantity: number; minimum: number; code: string; notes: string; ladderRestriction?: LadderRestriction }
-export type StockAssignment = { id: string; personId: string; inventoryItemId: string; equipment: string; brand: string; model: string; category: InventoryItem['category']; unit: InventoryItem['unit']; code: string; quantity: number; assignedAt: string; assignedBy: string; notes: string; status: 'Pendente' | 'Aprovado e retirado'; approvedAt?: string; photo?: string; sourceRequestCode?: string }
-export type MaterialDisposition = 'Instalado no cliente' | 'Devolvido ao estoque' | 'Danificado'
-export type MaterialWorkflowStatus = 'Utilizado' | 'Aguardando recebimento' | 'Recebido' | 'Cancelado'
+export type EquipmentType = 'Ferramenta' | 'EPI'
+export type EquipmentCategory = { id: string; name: string; type: EquipmentType; questions: string[]; active: boolean }
+export type InventoryItem = {
+  id: string
+  equipment: string
+  brand: string
+  model: string
+  category: 'Insumo' | 'Ferramenta pessoal' | 'Ferramenta rotativa' | 'EPI' | 'Escada'
+  equipmentCategoryId?: string
+  unit: 'Unidade' | 'Caixa' | 'Metros' | 'Rolo'
+  quantity: number
+  minimum: number
+  code: string
+  ca?: string
+  serialNumber?: string
+  notes: string
+  ladderRestriction?: LadderRestriction
+}
+export type StockAssignment = {
+  id: string
+  personId: string
+  inventoryItemId: string
+  equipment: string
+  brand: string
+  model: string
+  category: InventoryItem['category']
+  equipmentCategoryId?: string
+  unit: InventoryItem['unit']
+  code: string
+  ca?: string
+  serialNumber?: string
+  quantity: number
+  assignedAt: string
+  assignedBy: string
+  notes: string
+  status: 'Pendente' | 'Aprovado e retirado'
+  approvedAt?: string
+  photo?: string
+  sourceRequestCode?: string
+}
+export type MaterialDisposition = 'Instalado no cliente' | 'Devolvido ao estoque' | 'Danificado' | 'Necessário troca'
+export type MaterialWorkflowStatus = 'Utilizado' | 'Aguardando aprovação TST' | 'Aguardando recebimento' | 'Recebido' | 'Cancelado'
 export type MaterialUsage = {
   id: string
   personId: string
@@ -70,6 +108,60 @@ export type MaterialUsage = {
   photo: string
   processedAt?: string
   processedBy?: string
+  stockCondition?: 'Bom estado' | 'Requer manutenção' | 'Danificado'
+  stockConditionNotes?: string
+}
+export type EquipmentApprovalSituation = 'Devolvido ao estoque' | 'Danificado' | 'Troca de equipamento' | 'Solicitação de equipamento'
+export type EquipmentApprovalStatus = 'Aguardando TST' | 'Cancelado' | 'Devolvido ao estoque' | 'Enviado ao estoque' | 'Atendido'
+export type EquipmentApprovalRequest = {
+  id: string
+  personId: string
+  personName: string
+  inventoryItemId?: string
+  materialUsageId?: string
+  equipment: string
+  code: string
+  situation: EquipmentApprovalSituation
+  reason: string
+  category: string
+  equipmentCategoryId?: string
+  equipmentType: EquipmentType
+  quantity: number
+  photo?: string
+  createdAt: string
+  createdBy: string
+  status: EquipmentApprovalStatus
+  processedAt?: string
+  processedBy?: string
+}
+export type EquipmentStockRequestStatus = 'Criado' | 'Recebido' | 'Aguardando compra' | 'Em separação' | 'Enviado para aprovação' | 'Concluído' | 'Cancelado'
+export type EquipmentStockRequest = {
+  id: string
+  sourceApprovalId?: string
+  personId: string
+  personName: string
+  requestedEquipment: string
+  reason: string
+  equipmentType: EquipmentType
+  equipmentCategoryId?: string
+  categoryName: string
+  quantity: number
+  status: EquipmentStockRequestStatus
+  createdAt: string
+  requestedBy: string
+  receivedAt?: string
+  receivedBy?: string
+  equipment?: string
+  brand?: string
+  model?: string
+  code?: string
+  ca?: string
+  serialNumber?: string
+  notes?: string
+  photo?: string
+  completedAt?: string
+  completedBy?: string
+  assignmentId?: string
 }
 export type AuditCategory = 'Ferramentas' | 'EPIs' | 'Escadas'
 export type AuditAnswer = boolean | 'Conforme' | 'Não conforme' | 'Não aplicável'
@@ -147,6 +239,27 @@ export type SurveyRequest = {
   integrationError?: string
 }
 
+export type ReturnCallRequest = {
+  id: string
+  localCode: string
+  movideskTicketId: string
+  movideskInternalId?: string
+  movideskActionId?: string
+  client: string
+  urgency: string
+  category: string
+  serviceFirstLevelId?: number
+  date: string
+  description: string
+  photo: string
+  openedById: string
+  openedByName: string
+  createdAt: string
+  status: string
+  photoSentToMovideskAt?: string
+  integrationError?: string
+}
+
 export type AprRecord = {
   id: string
   createdAt: string
@@ -166,6 +279,67 @@ export type AprRecord = {
   pdfStorageKey?: string
 }
 
+export type SystemPreventiveAssetType = 'Servidor' | 'Workstation' | 'Storage'
+export type SystemPreventiveChecklistStatus = 'Conforme' | 'Não conforme' | 'Não aplicável'
+export type SystemPreventiveChecklistAnswer = {
+  id: string
+  section: string
+  item: string
+  status: SystemPreventiveChecklistStatus
+  observation: string
+}
+export type SystemPreventivePhoto = { id: string; name: string; data: string }
+export type SystemPreventiveCapacity = {
+  starterTier: number
+  totalCameras: number
+  onlineCameras: number
+  otherDevices: number
+  retentionDays: number
+  averageBitrateMbps: number
+  resolution: string
+  fps: number
+  codec: string
+  storageTotalTb: number
+  storageUsedTb: number
+  storageFreeTb: number
+  diskCount: number
+  raidVolume: string
+}
+export type SystemPreventiveRecord = {
+  id: string
+  code: string
+  createdAt: string
+  createdById: string
+  createdByName: string
+  serviceDate: string
+  client: string
+  assetType: SystemPreventiveAssetType
+  assetName: string
+  model: string
+  serialNumber: string
+  ipAddress: string
+  assetFunction: string
+  workstationUser: string
+  operatingSystem: string
+  operatingSystemBuild: string
+  cpuUsagePercent: number | null
+  memoryUsagePercent: number | null
+  diskUsagePercent: number | null
+  usageObservation: string
+  digifortVersion: string
+  digifortVerificationDate: string
+  offlineCameras: number | null
+  digifortObservation: string
+  monitoredCameras: number | null
+  operationalProfile: string
+  storageCapacityTb: number | null
+  storageUsedTb: number | null
+  generalObservation: string
+  capacity?: SystemPreventiveCapacity
+  checklist: SystemPreventiveChecklistAnswer[]
+  photos: SystemPreventivePhoto[]
+}
+
 export type AppData = {
   account: AdminAccount
   people: Person[]
@@ -177,10 +351,15 @@ export type AppData = {
   inventory: InventoryItem[]
   stockAssignments: StockAssignment[]
   materialUsages: MaterialUsage[]
+  equipmentCategories: EquipmentCategory[]
+  equipmentApprovalRequests: EquipmentApprovalRequest[]
+  equipmentStockRequests: EquipmentStockRequest[]
   audits: AuditRecord[]
   rmaRequests: RmaRequest[]
   surveyRequests: SurveyRequest[]
+  returnCallRequests: ReturnCallRequest[]
   aprRecords: AprRecord[]
+  systemPreventives: SystemPreventiveRecord[]
   notifications: Notification[]
   permissions: string[]
 }
@@ -274,6 +453,9 @@ export function normalizeAppData(stored: AppData): AppData {
         ...item,
         equipment: item.equipment ?? inventoryItem?.equipment ?? 'Equipamento', brand: item.brand ?? inventoryItem?.brand ?? '', model: item.model ?? inventoryItem?.model ?? '',
         category: item.category ?? inventoryItem?.category ?? 'Insumo', unit: item.unit ?? inventoryItem?.unit ?? 'Unidade', code: item.code ?? inventoryItem?.code ?? 'SEM-CODIGO',
+        equipmentCategoryId: item.equipmentCategoryId ?? inventoryItem?.equipmentCategoryId,
+        ca: item.ca ?? inventoryItem?.ca,
+        serialNumber: item.serialNumber ?? inventoryItem?.serialNumber,
         status: item.status === 'Pendente' ? 'Pendente' : 'Aprovado e retirado',
       }
     }),
@@ -297,6 +479,21 @@ export function normalizeAppData(stored: AppData): AppData {
         photo: item.photo ?? '',
       }
     }),
+    equipmentCategories: (stored.equipmentCategories ?? []).map(category => ({
+      ...category,
+      questions: Array.isArray(category.questions) ? category.questions.filter(Boolean).slice(0, 10) : [],
+      active: category.active !== false,
+    })),
+    equipmentApprovalRequests: (stored.equipmentApprovalRequests ?? []).map(request => ({
+      ...request,
+      quantity: Number(request.quantity) || 1,
+      status: request.status ?? 'Aguardando TST',
+    })),
+    equipmentStockRequests: (stored.equipmentStockRequests ?? []).map(request => ({
+      ...request,
+      quantity: Number(request.quantity) || 1,
+      status: request.status ?? 'Criado',
+    })),
     audits: (stored.audits ?? []).map(audit => ({ ...audit, auditorName: audit.auditorName ?? stored.account.name, auditedName: audit.auditedName ?? people.find(person => person.id === audit.personId)?.name ?? 'Pessoa auditada', pdfFileName: audit.pdfFileName ?? 'Relatório anterior' })),
     rmaRequests: (stored.rmaRequests ?? []).map(item => ({
       ...item,
@@ -320,6 +517,15 @@ export function normalizeAppData(stored: AppData): AppData {
       status: item.status ?? 'Aguardando integração Movidesk',
       resolved: item.resolved ?? String(item.status ?? '').toLocaleLowerCase('pt-BR').includes('resolvid'),
     })),
+    returnCallRequests: (stored.returnCallRequests ?? []).map(item => ({
+      ...item,
+      localCode: item.localCode ?? `RET-${item.id.slice(0, 8).toUpperCase()}`,
+      movideskTicketId: item.movideskTicketId ?? '',
+      photo: item.photo ?? '',
+      openedById: item.openedById ?? stored.account.id,
+      openedByName: item.openedByName ?? stored.account.name,
+      status: item.status ?? 'Aguardando integração Movidesk',
+    })),
     aprRecords: (stored.aprRecords ?? []).map(item => ({
       ...item,
       createdById: item.createdById ?? stored.account.id,
@@ -329,6 +535,14 @@ export function normalizeAppData(stored: AppData): AppData {
       backPhotoCount: item.backPhotoCount ?? 0,
       signedBy: item.signedBy ?? item.createdByName ?? stored.account.name,
       pdfFileName: item.pdfFileName ?? `APR Aprovada - ${item.client || 'registro anterior'}.pdf`,
+    })),
+    systemPreventives: (stored.systemPreventives ?? []).map(item => ({
+      ...item,
+      code: item.code ?? `PREV-${item.id.slice(0, 8).toUpperCase()}`,
+      createdById: item.createdById ?? stored.account.id,
+      createdByName: item.createdByName ?? stored.account.name,
+      checklist: Array.isArray(item.checklist) ? item.checklist : [],
+      photos: Array.isArray(item.photos) ? item.photos : [],
     })),
   }
 }
@@ -346,7 +560,7 @@ export async function loadAppData(): Promise<AppData> {
   const initial: AppData = {
     account,
     people: [{ id: account.id, name: account.name, email: account.email, groups: ['Administrador'], active: true, canLogin: true, passwordHash: account.passwordHash, mustChangePassword: account.mustChangePassword }],
-    clients: [], vehicles: [], trajectories: [], stockRequests: [], kmRecords: [], inventory: [], stockAssignments: [], materialUsages: [], audits: [], rmaRequests: [], surveyRequests: [], aprRecords: [], notifications: [], permissions: [],
+    clients: [], vehicles: [], trajectories: [], stockRequests: [], kmRecords: [], inventory: [], stockAssignments: [], materialUsages: [], equipmentCategories: [], equipmentApprovalRequests: [], equipmentStockRequests: [], audits: [], rmaRequests: [], surveyRequests: [], returnCallRequests: [], aprRecords: [], systemPreventives: [], notifications: [], permissions: [],
   }
   await saveAppData(initial)
   return initial

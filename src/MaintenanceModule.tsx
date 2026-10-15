@@ -2,7 +2,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Camera, CheckCircle2, ChevronRight, FileText, PackageCheck, Printer, RotateCcw, Search, Send, Wrench } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import type { AppData, RmaRequest, RmaUrgency } from './store'
-import { publicAsset } from './paths'
+import { brandAssets } from './paths'
 import { serverApiFetch } from './serverApi'
 
 const todayInput = () => new Date().toISOString().slice(0, 10)
@@ -322,7 +322,7 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
 
 async function openThermalReceipt(request: RmaRequest, preview: Window | null, variant: ThermalReceiptVariant) {
   let logo = ''
-  try { logo = await fetch(publicAsset('alert-logo.png')).then(response => response.blob()).then(blobToDataUrl) } catch { /* O comprovante continua identificável pelo texto. */ }
+  try { logo = await fetch(brandAssets.pdf).then(response => response.blob()).then(blobToDataUrl) } catch { /* O comprovante continua identificável pelo texto. */ }
   const pageWidth = 80
   const safeLeft = 7
   const safeRight = 7

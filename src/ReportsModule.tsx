@@ -1,12 +1,12 @@
 import { useMemo, useState, type ComponentType } from 'react'
 import {
-  Boxes, CarFront, ClipboardCheck, Download, FileBarChart, FileSpreadsheet, Filter, MapPin,
-  PackageCheck, RotateCcw, Search, ShieldCheck, Wrench, X,
+  CarFront, ClipboardCheck, Download, FileBarChart, FileSpreadsheet, Filter, MapPin,
+  RotateCcw, Search, ShieldCheck, Wrench, X,
 } from 'lucide-react'
 import { formatQuantity, type AppData, type StockAssignment } from './store'
 import { auditAnswerLabel, auditItemStatus, auditSummaryStatus } from './auditChecklist'
 
-export type ReportId = 'km' | 'registro-dia' | 'ponto' | 'auditoria' | 'solicitacoes' | 'ferramentas' | 'epis' | 'insumos' | 'baixas' | 'rma' | 'levantamentos'
+export type ReportId = 'km' | 'registro-dia' | 'ponto' | 'auditoria' | 'ferramentas' | 'epis' | 'baixas' | 'rma' | 'levantamentos'
 type CellValue = string | number
 type ReportDetail = { label: string; value?: string; image?: string }
 type ReportRow = {
@@ -186,26 +186,6 @@ const reports: ReportDefinition[] = [
     }),
   },
   {
-    id: 'solicitacoes', label: 'Solicitações ao estoque', icon: PackageCheck,
-    columns: [
-      ['solicitante', 'Solicitante'], ['codigo', 'Código'], ['quantidade', 'Quantidade'], ['equipamentos', 'Equipamentos'],
-      ['data', 'Data'], ['hora', 'Horário'], ['status', 'Status'],
-    ].map(([key, label]) => ({ key, label })),
-    rows: data => data.stockRequests.map(item => {
-      const created = dateParts(item.createdAt)
-      const equipment = item.requestedItems.map(entry => `${entry.equipment} (${formatQuantity(entry.quantity)})`).join(', ') || missing
-      return {
-        id: item.id, date: created.isoDate, person: item.requester, client: item.client || '', status: item.status,
-        values: { solicitante: item.requester, codigo: item.code, quantidade: item.items, equipamentos: equipment, data: created.date, hora: created.time, status: item.status },
-        details: [
-          { label: 'Técnico responsável', value: item.technician }, { label: 'Cliente', value: item.client || 'Sem cliente' },
-          { label: 'Retirada prevista', value: declaredDate(item.expectedDate) }, { label: 'Observação geral', value: item.generalNotes || 'Sem observações' },
-          { label: 'Detalhamento dos itens', value: item.requestedItems.map((entry, index) => `${index + 1}. ${entry.equipment} · ${formatQuantity(entry.quantity)} · ${entry.status}${entry.description ? ` · ${entry.description}` : ''}${entry.substitute ? ` · substituído por ${entry.substitute.equipment}` : ''}`).join('\n') || 'Nenhum item' },
-        ],
-      }
-    }),
-  },
-  {
     id: 'ferramentas', label: 'Ferramentas', icon: Wrench,
     columns: [['pessoa', 'Pessoa'], ['equipamento', 'Equipamento'], ['modelo', 'Modelo'], ['quantidade', 'Quantidade'], ['recebimento', 'Data de recebimento'], ['status', 'Status']].map(([key, label]) => ({ key, label })),
     rows: data => assignmentRows(data, item => item.category.includes('Ferramenta')),
@@ -214,11 +194,6 @@ const reports: ReportDefinition[] = [
     id: 'epis', label: 'EPIs', icon: ShieldCheck,
     columns: [['pessoa', 'Pessoa'], ['equipamento', 'Equipamento'], ['modelo', 'Modelo'], ['quantidade', 'Quantidade'], ['recebimento', 'Data de recebimento'], ['status', 'Status']].map(([key, label]) => ({ key, label })),
     rows: data => assignmentRows(data, item => item.category === 'EPI'),
-  },
-  {
-    id: 'insumos', label: 'Insumos', icon: Boxes,
-    columns: [['pessoa', 'Pessoa'], ['equipamento', 'Equipamento'], ['modelo', 'Modelo'], ['quantidade', 'Quantidade'], ['recebimento', 'Data de recebimento'], ['status', 'Status']].map(([key, label]) => ({ key, label })),
-    rows: data => assignmentRows(data, item => item.category === 'Insumo'),
   },
   {
     id: 'baixas', label: 'Baixa de Materiais', icon: ClipboardCheck,

@@ -2,7 +2,7 @@ import { FormEvent, PointerEvent as ReactPointerEvent, useRef, useState } from '
 import { AlertTriangle, Camera, CheckCircle2, ChevronRight, Download, FileCheck2, PenLine, Plus, Trash2, UserPlus, Users, X } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import type { AppData, AprRecord } from './store'
-import { publicAsset } from './paths'
+import { brandAssets } from './paths'
 
 type AprPhoto = { id: string; name: string; data: string }
 type AprSheet = { id: string; front?: AprPhoto; back?: AprPhoto }
@@ -240,7 +240,7 @@ function addContainedImage(pdf: jsPDF, dataUrl: string, x: number, y: number, ma
 export async function createAprPdf(record: AprRecord, sheets: AprSheet[], signature: string) {
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
   let logo = ''
-  try { logo = await fetch(publicAsset('alert-logo.png')).then(response => response.blob()).then(blobToDataUrl) } catch { /* O título textual mantém o documento identificado. */ }
+  try { logo = await fetch(brandAssets.pdf).then(response => response.blob()).then(blobToDataUrl) } catch { /* O título textual mantém o documento identificado. */ }
   const drawHeader = (subtitle: string) => {
     if (logo) addContainedImage(pdf, logo, 15, 9, 39, 20)
     pdf.setFont('helvetica', 'bold'); pdf.setFontSize(18); pdf.setTextColor(44, 48, 50); pdf.text('APR Aprovada', 65, 19)

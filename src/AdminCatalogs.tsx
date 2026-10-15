@@ -1,9 +1,10 @@
 import { FormEvent, type ReactNode, useState } from 'react'
-import { Boxes, CarFront, KeyRound, MapPin, Pencil, Plus, Search, Trash2, Users, X } from 'lucide-react'
+import { CarFront, KeyRound, ListChecks, MapPin, Pencil, Plus, Search, Trash2, Users, Wrench, X } from 'lucide-react'
 import { normalizeProfiles, profileNames } from './access'
-import { accountFromPerson, formatQuantity, hashPassword, parseQuantity, type AppData, type Client, type InventoryItem, type Person, type Vehicle } from './store'
+import { accountFromPerson, hashPassword, type AppData, type Client, type EquipmentCategory, type EquipmentType, type InventoryItem, type Person, type Vehicle } from './store'
+import { personalInventory } from './personalInventory'
 
-type Section = 'pessoas' | 'clientes' | 'veiculos' | 'itens'
+type Section = 'pessoas' | 'clientes' | 'veiculos' | 'rotativas' | 'categorias'
 export function AdminCatalogs({ data, onChange }: { data: AppData; onChange: (data: AppData, message: string) => void }) {
   const [section, setSection] = useState<Section>('pessoas')
   const [query, setQuery] = useState('')
@@ -11,7 +12,8 @@ export function AdminCatalogs({ data, onChange }: { data: AppData; onChange: (da
     { id: 'pessoas', label: 'Pessoas', count: data.people.length, icon: Users },
     { id: 'clientes', label: 'Clientes', count: data.clients.length, icon: MapPin },
     { id: 'veiculos', label: 'Veículos', count: data.vehicles.length, icon: CarFront },
-    { id: 'itens', label: 'Itens do estoque', count: data.inventory.length, icon: Boxes },
+    { id: 'rotativas', label: 'Ferramentas rotativas', count: data.inventory.filter(item => item.category === 'Ferramenta rotativa').length, icon: Wrench },
+    { id: 'categorias', label: 'Categorias', count: data.equipmentCategories.length, icon: ListChecks },
   ]
 
   return <>
@@ -20,7 +22,8 @@ export function AdminCatalogs({ data, onChange }: { data: AppData; onChange: (da
     {section === 'pessoas' && <PeopleCatalog data={data} query={query} onChange={onChange} />}
     {section === 'clientes' && <ClientCatalog data={data} query={query} onChange={onChange} />}
     {section === 'veiculos' && <VehicleCatalog data={data} query={query} onChange={onChange} />}
-    {section === 'itens' && <InventoryCatalog data={data} query={query} onChange={onChange} />}
+    {section === 'rotativas' && <RotatingToolCatalog data={data} query={query} onChange={onChange} />}
+    {section === 'categorias' && <EquipmentCategoryCatalog data={data} query={query} onChange={onChange} />}
   </>
 }
 
@@ -110,41 +113,86 @@ function PeopleCatalog({ data, query, onChange }: CatalogProps) {
 
 function ClientCatalog({ data, query, onChange }: CatalogProps) {
   const [form, setForm] = useState({ name: '', city: '', state: '', latitude: '', longitude: '' })
+  const [editingId, setEditingId] = useState('')
   const visible = data.clients.filter(item => `${item.name} ${item.city} ${item.state}`.toLowerCase().includes(query.toLowerCase()))
+  const reset = () => { setForm({ name: '', city: '', state: '', latitude: '', longitude: '' }); setEditingId('') }
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    const client: Client = { id: crypto.randomUUID(), ...form, active: true }
-    onChange({ ...data, clients: [...data.clients, client] }, 'Cliente cadastrado com sucesso.')
-    setForm({ name: '', city: '', state: '', latitude: '', longitude: '' })
+    const previous = data.clients.find(item => item.id === editingId)
+    const client: Client = { id: previous?.id ?? crypto.randomUUID(), ...form, active: previous?.active ?? true }
+    onChange({ ...data, clients: previous ? data.clients.map(item => item.id === previous.id ? client : item) : [...data.clients, client] }, previous ? 'Cliente atualizado com sucesso.' : 'Cliente cadastrado com sucesso.')
+    reset()
   }
-  return <CatalogLayout title="Cadastrar cliente" form={<form className="catalog-form" onSubmit={submit}><label>Nome do cliente<input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} required /></label><label>Cidade<input value={form.city} onChange={event => setForm({ ...form, city: event.target.value })} required /></label><label>Estado<input value={form.state} maxLength={2} onChange={event => setForm({ ...form, state: event.target.value.toUpperCase() })} required /></label><label>Latitude<input value={form.latitude} onChange={event => setForm({ ...form, latitude: event.target.value })} required /></label><label>Longitude<input value={form.longitude} onChange={event => setForm({ ...form, longitude: event.target.value })} required /></label><button className="primary-button"><Plus size={17} /> Adicionar</button></form>} table={<Table headers={['Cliente', 'Cidade', 'Estado', 'Coordenadas', 'Status']} rows={visible.map(item => [item.name, item.city, item.state, `${item.latitude}, ${item.longitude}`, item.active ? 'Ativo' : 'Inativo'])} />} />
+  const edit = (item: Client) => { setEditingId(item.id); setForm({ name: item.name, city: item.city, state: item.state, latitude: item.latitude, longitude: item.longitude }) }
+  const remove = (item: Client) => { if (!window.confirm(`Excluir o cliente ${item.name}?`)) return; onChange({ ...data, clients: data.clients.filter(entry => entry.id !== item.id) }, 'Cliente excluído.'); if (editingId === item.id) reset() }
+  return <CatalogLayout title={editingId ? 'Editar cliente' : 'Cadastrar cliente'} form={<form className="catalog-form" onSubmit={submit}><label>Nome do cliente<input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} required /></label><label>Cidade<input value={form.city} onChange={event => setForm({ ...form, city: event.target.value })} required /></label><label>Estado<input value={form.state} maxLength={2} onChange={event => setForm({ ...form, state: event.target.value.toUpperCase() })} required /></label><label>Latitude<input value={form.latitude} onChange={event => setForm({ ...form, latitude: event.target.value })} required /></label><label>Longitude<input value={form.longitude} onChange={event => setForm({ ...form, longitude: event.target.value })} required /></label><div className="catalog-form-actions wide">{editingId && <button type="button" className="secondary-button" onClick={reset}><X size={16} /> Cancelar</button>}<button className="primary-button">{editingId ? <Pencil size={17} /> : <Plus size={17} />}{editingId ? 'Salvar' : 'Adicionar'}</button></div></form>} table={<div className="responsive-table"><table><thead><tr><th>Cliente</th><th>Cidade/UF</th><th>Coordenadas</th><th>Status</th><th>Ações</th></tr></thead><tbody>{visible.length ? visible.map(item => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.city}/{item.state}</td><td>{item.latitude}, {item.longitude}</td><td><span className={`status ${item.active ? 'success' : 'danger'}`}>{item.active ? 'Ativo' : 'Inativo'}</span></td><td><div className="row-actions"><button className="secondary-button compact" onClick={() => edit(item)}><Pencil size={14} /> Editar</button><button className="danger-button compact" onClick={() => remove(item)}><Trash2 size={14} /> Excluir</button></div></td></tr>) : <tr><td colSpan={5} className="table-empty">Nenhum cliente encontrado.</td></tr>}</tbody></table></div>} />
 }
 
 function VehicleCatalog({ data, query, onChange }: CatalogProps) {
   const [form, setForm] = useState({ plate: '', brand: '', model: '', city: '', state: '', mileage: '' })
+  const [editingId, setEditingId] = useState('')
   const visible = data.vehicles.filter(item => `${item.plate} ${item.brand} ${item.model}`.toLowerCase().includes(query.toLowerCase()))
+  const reset = () => { setForm({ plate: '', brand: '', model: '', city: '', state: '', mileage: '' }); setEditingId('') }
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    const vehicle: Vehicle = { id: crypto.randomUUID(), plate: form.plate.toUpperCase(), brand: form.brand, model: form.model, city: form.city, state: form.state.toUpperCase(), mileage: Number(form.mileage), active: true }
-    onChange({ ...data, vehicles: [...data.vehicles, vehicle] }, 'Veículo cadastrado com sucesso.')
-    setForm({ plate: '', brand: '', model: '', city: '', state: '', mileage: '' })
+    const previous = data.vehicles.find(item => item.id === editingId)
+    const vehicle: Vehicle = { id: previous?.id ?? crypto.randomUUID(), plate: form.plate.toUpperCase(), brand: form.brand, model: form.model, city: form.city, state: form.state.toUpperCase(), mileage: Number(form.mileage), active: previous?.active ?? true }
+    onChange({ ...data, vehicles: previous ? data.vehicles.map(item => item.id === previous.id ? vehicle : item) : [...data.vehicles, vehicle] }, previous ? 'Veículo atualizado com sucesso.' : 'Veículo cadastrado com sucesso.')
+    reset()
   }
-  return <CatalogLayout title="Cadastrar veículo" form={<form className="catalog-form" onSubmit={submit}><label>Placa<input value={form.plate} maxLength={7} onChange={event => setForm({ ...form, plate: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })} required /></label><label>Marca<input value={form.brand} onChange={event => setForm({ ...form, brand: event.target.value })} required /></label><label>Modelo<input value={form.model} onChange={event => setForm({ ...form, model: event.target.value })} required /></label><label>Cidade<input value={form.city} onChange={event => setForm({ ...form, city: event.target.value })} required /></label><label>Estado<input value={form.state} maxLength={2} onChange={event => setForm({ ...form, state: event.target.value.toUpperCase() })} required /></label><label>Quilometragem atual<input type="number" min="0" value={form.mileage} onChange={event => setForm({ ...form, mileage: event.target.value })} required /></label><button className="primary-button"><Plus size={17} /> Adicionar</button></form>} table={<Table headers={['Veículo', 'Placa', 'Cidade/UF', 'KM atual', 'Rodízio']} rows={visible.map(item => [`${item.brand} ${item.model}`, item.plate, `${item.city}/${item.state}`, `${item.mileage.toLocaleString('pt-BR')} km`, rotationDay(item.plate)])} />} />
+  const edit = (item: Vehicle) => { setEditingId(item.id); setForm({ plate: item.plate, brand: item.brand, model: item.model, city: item.city, state: item.state, mileage: String(item.mileage) }) }
+  const remove = (item: Vehicle) => { if (!window.confirm(`Excluir o veículo ${item.plate}?`)) return; onChange({ ...data, vehicles: data.vehicles.filter(entry => entry.id !== item.id) }, 'Veículo excluído.'); if (editingId === item.id) reset() }
+  return <CatalogLayout title={editingId ? 'Editar veículo' : 'Cadastrar veículo'} form={<form className="catalog-form" onSubmit={submit}><label>Placa<input value={form.plate} maxLength={7} onChange={event => setForm({ ...form, plate: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })} required /></label><label>Marca<input value={form.brand} onChange={event => setForm({ ...form, brand: event.target.value })} required /></label><label>Modelo<input value={form.model} onChange={event => setForm({ ...form, model: event.target.value })} required /></label><label>Cidade<input value={form.city} onChange={event => setForm({ ...form, city: event.target.value })} required /></label><label>Estado<input value={form.state} maxLength={2} onChange={event => setForm({ ...form, state: event.target.value.toUpperCase() })} required /></label><label>Quilometragem atual<input type="number" min="0" value={form.mileage} onChange={event => setForm({ ...form, mileage: event.target.value })} required /></label><div className="catalog-form-actions wide">{editingId && <button type="button" className="secondary-button" onClick={reset}><X size={16} /> Cancelar</button>}<button className="primary-button">{editingId ? <Pencil size={17} /> : <Plus size={17} />}{editingId ? 'Salvar' : 'Adicionar'}</button></div></form>} table={<div className="responsive-table"><table><thead><tr><th>Veículo</th><th>Placa</th><th>Cidade/UF</th><th>KM atual</th><th>Rodízio</th><th>Ações</th></tr></thead><tbody>{visible.length ? visible.map(item => <tr key={item.id}><td><b>{item.brand} {item.model}</b></td><td>{item.plate}</td><td>{item.city}/{item.state}</td><td>{item.mileage.toLocaleString('pt-BR')} km</td><td>{rotationDay(item.plate)}</td><td><div className="row-actions"><button className="secondary-button compact" onClick={() => edit(item)}><Pencil size={14} /> Editar</button><button className="danger-button compact" onClick={() => remove(item)}><Trash2 size={14} /> Excluir</button></div></td></tr>) : <tr><td colSpan={6} className="table-empty">Nenhum veículo encontrado.</td></tr>}</tbody></table></div>} />
 }
 
-function InventoryCatalog({ data, query, onChange }: CatalogProps) {
-  const [form, setForm] = useState({ equipment: '', brand: '', model: '', category: 'Insumo' as InventoryItem['category'], unit: 'Unidade' as InventoryItem['unit'], quantity: '', minimum: '', code: '', notes: '' })
-  const visible = data.inventory.filter(item => `${item.equipment} ${item.brand} ${item.model} ${item.category}`.toLowerCase().includes(query.toLowerCase()))
+function RotatingToolCatalog({ data, query, onChange }: CatalogProps) {
+  const emptyForm = { equipment: '', brand: '', model: '', code: '', serialNumber: '', notes: '' }
+  const [form, setForm] = useState(emptyForm)
+  const [editingId, setEditingId] = useState('')
+  const visible = data.inventory.filter(item => item.category === 'Ferramenta rotativa' && `${item.equipment} ${item.brand} ${item.model} ${item.code}`.toLowerCase().includes(query.toLowerCase()))
+  const holder = (item: InventoryItem) => data.people.find(person => personalInventory(data, person.id).some(entry => entry.id === item.id))
+  const reset = () => { setForm(emptyForm); setEditingId('') }
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    const quantity = parseQuantity(form.quantity)
-    const minimum = form.minimum ? parseQuantity(form.minimum) : 0
-    if (!Number.isFinite(quantity) || !Number.isFinite(minimum)) return
-    const item: InventoryItem = { id: crypto.randomUUID(), ...form, quantity, minimum }
-    onChange({ ...data, inventory: [...data.inventory, item] }, 'Item cadastrado no estoque.')
-    setForm({ equipment: '', brand: '', model: '', category: 'Insumo', unit: 'Unidade', quantity: '', minimum: '', code: '', notes: '' })
+    const normalizedCode = form.code.trim().toLocaleUpperCase('pt-BR')
+    if (data.inventory.some(item => item.id !== editingId && item.code.trim().toLocaleUpperCase('pt-BR') === normalizedCode)) return
+    const previous = data.inventory.find(item => item.id === editingId)
+    const item: InventoryItem = { id: previous?.id ?? crypto.randomUUID(), equipment: form.equipment.trim(), brand: form.brand.trim(), model: form.model.trim(), category: 'Ferramenta rotativa', equipmentCategoryId: previous?.equipmentCategoryId, unit: 'Unidade', quantity: 1, minimum: 0, code: normalizedCode, serialNumber: form.serialNumber.trim(), notes: form.notes.trim() }
+    const inventory = previous ? data.inventory.map(entry => entry.id === previous.id ? item : entry) : [...data.inventory, item]
+    const stockAssignments = previous ? data.stockAssignments.map(entry => entry.inventoryItemId === previous.id ? { ...entry, equipment: item.equipment, brand: item.brand, model: item.model, code: item.code, serialNumber: item.serialNumber } : entry) : data.stockAssignments
+    onChange({ ...data, inventory, stockAssignments }, previous ? 'Ferramenta rotativa atualizada.' : 'Ferramenta rotativa cadastrada individualmente.')
+    reset()
   }
-  return <CatalogLayout title="Cadastrar item" form={<form className="catalog-form" onSubmit={submit}><label>Equipamento<input value={form.equipment} onChange={event => setForm({ ...form, equipment: event.target.value })} required /></label><label>Marca (opcional)<input value={form.brand} onChange={event => setForm({ ...form, brand: event.target.value })} /></label><label>Modelo (opcional)<input value={form.model} onChange={event => setForm({ ...form, model: event.target.value })} /></label><label>Categoria<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value as InventoryItem['category'] })}><option>Insumo</option><option>Ferramenta pessoal</option><option>Ferramenta rotativa</option><option>EPI</option><option>Escada</option></select></label><label>Unidade<select value={form.unit} onChange={event => setForm({ ...form, unit: event.target.value as InventoryItem['unit'] })}><option>Unidade</option><option>Caixa</option><option>Metros</option><option>Rolo</option></select></label><label>Quantidade<input type="text" inputMode="decimal" pattern="-?[0-9]+([,.][0-9]+)?" title="Digite um número inteiro ou decimal, como 2 ou 1,5" value={form.quantity} onChange={event => setForm({ ...form, quantity: event.target.value })} placeholder="Ex.: 2 ou 1,5" required /></label><label>Estoque mínimo<input type="text" inputMode="decimal" pattern="-?[0-9]+([,.][0-9]+)?" title="Digite um número inteiro ou decimal, como 2 ou 1,5" value={form.minimum} onChange={event => setForm({ ...form, minimum: event.target.value })} placeholder="Ex.: 1 ou 0,5" /></label><label>Código interno (opcional)<input value={form.code} onChange={event => setForm({ ...form, code: event.target.value })} /></label><label className="wide">Observação (opcional)<input value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} /></label><button className="primary-button"><Plus size={17} /> Adicionar</button></form>} table={<Table headers={['Equipamento', 'Categoria', 'Unidade', 'Saldo', 'Mínimo', 'Status']} rows={visible.map(item => [item.equipment, item.category, item.unit, formatQuantity(item.quantity), formatQuantity(item.minimum), item.quantity < 0 ? 'Saldo negativo' : item.quantity <= item.minimum ? 'Estoque mínimo' : 'Disponível'])} />} />
+  const edit = (item: InventoryItem) => { setEditingId(item.id); setForm({ equipment: item.equipment, brand: item.brand, model: item.model, code: item.code, serialNumber: item.serialNumber || '', notes: item.notes }) }
+  const remove = (item: InventoryItem) => { if (!window.confirm(`Excluir a ferramenta rotativa ${item.equipment} (${item.code})?`)) return; onChange({ ...data, inventory: data.inventory.filter(entry => entry.id !== item.id), stockAssignments: data.stockAssignments.filter(entry => entry.inventoryItemId !== item.id) }, 'Ferramenta rotativa excluída.'); if (editingId === item.id) reset() }
+  const duplicated = Boolean(form.code.trim() && data.inventory.some(item => item.id !== editingId && item.code.trim().toLocaleUpperCase('pt-BR') === form.code.trim().toLocaleUpperCase('pt-BR')))
+  return <CatalogLayout title={editingId ? 'Editar ferramenta rotativa' : 'Cadastrar ferramenta rotativa'} form={<form className="catalog-form" onSubmit={submit}><label>Equipamento<input value={form.equipment} onChange={event => setForm({ ...form, equipment: event.target.value })} required /></label><label>Fabricante<input value={form.brand} onChange={event => setForm({ ...form, brand: event.target.value })} /></label><label>Modelo<input value={form.model} onChange={event => setForm({ ...form, model: event.target.value })} /></label><label>Código individual<input value={form.code} onChange={event => setForm({ ...form, code: event.target.value.toLocaleUpperCase('pt-BR') })} required /></label><label>Número de série (opcional)<input value={form.serialNumber} onChange={event => setForm({ ...form, serialNumber: event.target.value })} /></label><label className="wide">Observações (opcional)<textarea value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} /></label>{duplicated && <p className="catalog-form-error wide">Já existe uma ferramenta com este código individual.</p>}<div className="catalog-form-actions wide">{editingId && <button type="button" className="secondary-button" onClick={reset}><X size={16} /> Cancelar</button>}<button className="primary-button" disabled={duplicated}>{editingId ? <Pencil size={17} /> : <Plus size={17} />}{editingId ? 'Salvar' : 'Adicionar uma ferramenta'}</button></div></form>} table={<div className="responsive-table"><table><thead><tr><th>Equipamento</th><th>Modelo</th><th>Fabricante</th><th>Código</th><th>Responsável</th><th>Ações</th></tr></thead><tbody>{visible.length ? visible.map(item => <tr key={item.id}><td><b>{item.equipment}</b></td><td>{item.model || '—'}</td><td>{item.brand || '—'}</td><td>{item.code}</td><td>{holder(item)?.name ?? 'Estoque'}</td><td><div className="row-actions"><button className="secondary-button compact" onClick={() => edit(item)}><Pencil size={14} /> Editar</button><button className="danger-button compact" onClick={() => remove(item)}><Trash2 size={14} /> Excluir</button></div></td></tr>) : <tr><td colSpan={6} className="table-empty">Nenhuma ferramenta rotativa cadastrada.</td></tr>}</tbody></table></div>} />
+}
+
+function EquipmentCategoryCatalog({ data, query, onChange }: CatalogProps) {
+  const emptyForm = { name: '', type: 'Ferramenta' as EquipmentType, questions: [''] }
+  const [form, setForm] = useState(emptyForm)
+  const [editingId, setEditingId] = useState('')
+  const visible = data.equipmentCategories.filter(item => `${item.name} ${item.type}`.toLowerCase().includes(query.toLowerCase()))
+  const reset = () => { setForm({ ...emptyForm, questions: [''] }); setEditingId('') }
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    const questions = form.questions.map(question => question.trim()).filter(Boolean).slice(0, 10)
+    if (!form.name.trim() || !questions.length) return
+    const previous = data.equipmentCategories.find(item => item.id === editingId)
+    const category: EquipmentCategory = { id: previous?.id ?? crypto.randomUUID(), name: form.name.trim(), type: form.type, questions, active: true }
+    onChange({ ...data, equipmentCategories: previous ? data.equipmentCategories.map(item => item.id === previous.id ? category : item) : [...data.equipmentCategories, category] }, previous ? 'Categoria atualizada.' : 'Categoria cadastrada com checklist de auditoria.')
+    reset()
+  }
+  const edit = (item: EquipmentCategory) => { setEditingId(item.id); setForm({ name: item.name, type: item.type, questions: item.questions.length ? [...item.questions] : [''] }) }
+  const remove = (item: EquipmentCategory) => {
+    if (!window.confirm(`Excluir a categoria ${item.name}? Os equipamentos vinculados ficarão sem categoria.`)) return
+    onChange({ ...data, equipmentCategories: data.equipmentCategories.filter(entry => entry.id !== item.id), inventory: data.inventory.map(entry => entry.equipmentCategoryId === item.id ? { ...entry, equipmentCategoryId: undefined } : entry), stockAssignments: data.stockAssignments.map(entry => entry.equipmentCategoryId === item.id ? { ...entry, equipmentCategoryId: undefined } : entry) }, 'Categoria excluída.')
+    if (editingId === item.id) reset()
+  }
+  const setQuestion = (index: number, value: string) => setForm(current => ({ ...current, questions: current.questions.map((question, questionIndex) => questionIndex === index ? value : question) }))
+  const removeQuestion = (index: number) => setForm(current => ({ ...current, questions: current.questions.filter((_, questionIndex) => questionIndex !== index) }))
+  return <CatalogLayout title={editingId ? 'Editar categoria' : 'Cadastrar categoria'} form={<form className="catalog-form category-form" onSubmit={submit}><label>Tipo<select value={form.type} onChange={event => setForm({ ...form, type: event.target.value as EquipmentType })}><option>Ferramenta</option><option>EPI</option></select></label><label>Nome da categoria<input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Capacete" required /></label><fieldset className="wide category-questions"><legend>Perguntas da auditoria</legend><p>Cadastre até 10 perguntas. Na auditoria as respostas serão Conforme, Não conforme ou Não aplicável.</p>{form.questions.map((question, index) => <div key={index}><span>{index + 1}</span><input value={question} onChange={event => setQuestion(index, event.target.value)} placeholder="Digite a pergunta" required /><button type="button" className="icon-button" disabled={form.questions.length === 1} onClick={() => removeQuestion(index)} aria-label="Remover pergunta"><Trash2 size={15} /></button></div>)}<button type="button" className="secondary-button compact" disabled={form.questions.length >= 10} onClick={() => setForm(current => ({ ...current, questions: [...current.questions, ''] }))}><Plus size={15} /> Adicionar pergunta</button></fieldset><div className="catalog-form-actions wide">{editingId && <button type="button" className="secondary-button" onClick={reset}><X size={16} /> Cancelar</button>}<button className="primary-button">{editingId ? <Pencil size={17} /> : <Plus size={17} />}{editingId ? 'Salvar categoria' : 'Cadastrar categoria'}</button></div></form>} table={<div className="responsive-table"><table><thead><tr><th>Categoria</th><th>Tipo</th><th>Perguntas</th><th>Ações</th></tr></thead><tbody>{visible.length ? visible.map(item => <tr key={item.id}><td><b>{item.name}</b></td><td>{item.type}</td><td>{item.questions.length} de 10</td><td><div className="row-actions"><button className="secondary-button compact" onClick={() => edit(item)}><Pencil size={14} /> Editar</button><button className="danger-button compact" onClick={() => remove(item)}><Trash2 size={14} /> Excluir</button></div></td></tr>) : <tr><td colSpan={4} className="table-empty">Nenhuma categoria encontrada.</td></tr>}</tbody></table></div>} />
 }
 
 type CatalogProps = { data: AppData; query: string; onChange: (data: AppData, message: string) => void }

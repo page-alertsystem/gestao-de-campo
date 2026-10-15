@@ -241,7 +241,7 @@ export function SurveyPage({ data, onChange }: { data: AppData; onChange: (data:
   }
 
   return <>
-    <section className="page-intro"><div><p className="eyebrow">Gestão</p><h2>Levantamento</h2><p>Solicite o levantamento de uma área, defina o período e acompanhe o andamento pelo status do Movidesk.</p></div></section>
+    <section className="page-intro"><div><p className="eyebrow">Gestão</p><h2>Solicitação de levantamento</h2><p>Solicite o levantamento de uma área, defina o período e acompanhe o andamento pelo status do Movidesk.</p></div></section>
     <section className="surface rma-form-card">
       <div className="section-heading"><div><p className="eyebrow">Solicitar levantamento</p><h3>Informações da atividade</h3></div><span className="rma-heading-icon"><CalendarDays size={23} /></span></div>
       <div className={integrationState === 'ready' ? 'rma-integration-state ready' : 'rma-integration-state'}>

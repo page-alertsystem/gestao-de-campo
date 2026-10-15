@@ -7,6 +7,7 @@ export const profileNames = [
   'Service Desk',
   'Implantação',
   'Manutenção',
+  'TST',
   'Administrador',
 ] as const
 
@@ -14,33 +15,37 @@ export type ProfileName = typeof profileNames[number]
 
 export type Page =
   | 'inicio'
-  | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'operacao-apr'
-  | 'gestao-auditoria' | 'gestao-solicitacoes' | 'gestao-levantamento'
-  | 'pessoal-ferramentas' | 'pessoal-insumos' | 'pessoal-epis' | 'pessoal-aprovacoes'
-  | 'estoque-pedidos' | 'estoque-baixas' | 'estoque-gerenciamento'
+  | 'atendimento-preventiva'
+  | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'operacao-apr' | 'operacao-retorno'
+  | 'gestao-auditoria' | 'gestao-aprovacao-equipamentos' | 'gestao-levantamento'
+  | 'pessoal-ferramentas' | 'pessoal-epis' | 'pessoal-aprovacoes'
+  | 'estoque-solicitacoes-equipamentos' | 'estoque-baixas' | 'estoque-gerenciamento'
   | 'manutencao-rma' | 'manutencao-danificados'
   | 'documentos-auditorias' | 'documentos-troca-veiculo' | 'documentos-aprs'
   | 'relatorios-km' | 'relatorios-registro-dia' | 'relatorios-ponto' | 'relatorios-auditoria'
-  | 'relatorios-solicitacoes' | 'relatorios-ferramentas' | 'relatorios-epis' | 'relatorios-insumos'
+  | 'relatorios-ferramentas' | 'relatorios-epis'
   | 'relatorios-baixas' | 'relatorios-rma' | 'relatorios-levantamentos'
+  | 'relatorios-preventivas'
   | 'configuracoes'
 
 export const profileDescriptions: Record<ProfileName, string> = {
-  'Técnico': 'Operação, APR aprovada, estoque pessoal, aprovações, auditoria semanal da própria escada e solicitação de RMA.',
+  'Técnico': 'Atendimento preventivo, operação, APR aprovada, ferramentas, EPIs, aprovações, auditoria semanal da própria escada e solicitação de RMA.',
   'RH': 'Acesso do técnico mais relatórios de registro do dia e ponto esquecido.',
   'Logística': 'Acesso do técnico mais consulta ao relatório de quilometragem.',
-  'Estoque': 'Acesso do técnico mais pedidos, baixas, gerenciamento e relatórios do estoque.',
+  'Estoque': 'Acesso do técnico mais solicitações de equipamentos, devoluções, ferramentas rotativas e relatórios do estoque.',
   'Auditoria': 'Acesso do técnico mais auditorias completas de ferramentas, EPIs e escadas.',
-  'Service Desk': 'Acesso do técnico mais solicitações ao estoque, levantamentos e relatório de levantamentos.',
-  'Implantação': 'Acesso do técnico mais solicitações ao estoque, levantamentos e relatório de levantamentos.',
+  'Service Desk': 'Acesso do técnico mais solicitações de levantamento e consulta das preventivas e levantamentos.',
+  'Implantação': 'Acesso do técnico mais solicitações de levantamento e consulta das preventivas e levantamentos.',
   'Manutenção': 'Acesso do técnico mais recebimento de equipamentos danificados e relatório de RMA.',
+  'TST': 'Acesso do técnico, APR aprovada e aprovação de baixas e solicitações de ferramentas e EPIs.',
   'Administrador': 'Acesso total a todas as funções, configurações, relatórios e documentos.',
 }
 
 const technicianPages: Page[] = [
   'inicio',
-  'operacao-km', 'operacao-dia', 'operacao-ponto', 'operacao-apr',
-  'pessoal-ferramentas', 'pessoal-insumos', 'pessoal-epis', 'pessoal-aprovacoes',
+  'atendimento-preventiva',
+  'operacao-km', 'operacao-dia', 'operacao-ponto', 'operacao-apr', 'operacao-retorno',
+  'pessoal-ferramentas', 'pessoal-epis', 'pessoal-aprovacoes',
   'gestao-auditoria',
   'manutencao-rma',
 ]
@@ -50,24 +55,26 @@ const profilePages: Record<ProfileName, Page[]> = {
   'RH': ['relatorios-registro-dia', 'relatorios-ponto'],
   'Logística': ['relatorios-km'],
   'Estoque': [
-    'estoque-pedidos', 'estoque-baixas', 'estoque-gerenciamento',
-    'relatorios-baixas', 'relatorios-insumos', 'relatorios-epis', 'relatorios-ferramentas', 'relatorios-solicitacoes',
+    'estoque-solicitacoes-equipamentos', 'estoque-baixas', 'estoque-gerenciamento',
+    'relatorios-baixas', 'relatorios-epis', 'relatorios-ferramentas',
   ],
   'Auditoria': ['gestao-auditoria'],
-  'Service Desk': ['gestao-solicitacoes', 'gestao-levantamento', 'relatorios-levantamentos'],
-  'Implantação': ['gestao-solicitacoes', 'gestao-levantamento', 'relatorios-levantamentos'],
+  'Service Desk': ['gestao-levantamento', 'relatorios-levantamentos', 'relatorios-preventivas'],
+  'Implantação': ['gestao-levantamento', 'relatorios-levantamentos', 'relatorios-preventivas'],
   'Manutenção': ['manutencao-rma', 'manutencao-danificados', 'relatorios-rma'],
+  'TST': ['gestao-aprovacao-equipamentos'],
   'Administrador': [
     'inicio',
-    'operacao-km', 'operacao-dia', 'operacao-ponto', 'operacao-apr',
-    'gestao-auditoria', 'gestao-solicitacoes', 'gestao-levantamento',
-    'pessoal-ferramentas', 'pessoal-insumos', 'pessoal-epis', 'pessoal-aprovacoes',
-    'estoque-pedidos', 'estoque-baixas', 'estoque-gerenciamento',
+    'atendimento-preventiva',
+    'operacao-km', 'operacao-dia', 'operacao-ponto', 'operacao-apr', 'operacao-retorno',
+    'gestao-auditoria', 'gestao-aprovacao-equipamentos', 'gestao-levantamento',
+    'pessoal-ferramentas', 'pessoal-epis', 'pessoal-aprovacoes',
+    'estoque-solicitacoes-equipamentos', 'estoque-baixas', 'estoque-gerenciamento',
     'manutencao-rma', 'manutencao-danificados',
     'documentos-auditorias', 'documentos-troca-veiculo', 'documentos-aprs',
     'relatorios-km', 'relatorios-registro-dia', 'relatorios-ponto', 'relatorios-auditoria',
-    'relatorios-solicitacoes', 'relatorios-ferramentas', 'relatorios-epis', 'relatorios-insumos',
-    'relatorios-baixas', 'relatorios-rma', 'relatorios-levantamentos',
+    'relatorios-ferramentas', 'relatorios-epis',
+    'relatorios-baixas', 'relatorios-rma', 'relatorios-levantamentos', 'relatorios-preventivas',
     'configuracoes',
   ],
 }
@@ -75,8 +82,8 @@ const profilePages: Record<ProfileName, Page[]> = {
 const legacyProfiles: Record<string, ProfileName> = {
   'Técnico de Campo': 'Técnico',
   'Auditor': 'Auditoria',
-  'Segurança do Trabalho': 'Auditoria',
-  'Seg. Trabalho': 'Auditoria',
+  'Segurança do Trabalho': 'TST',
+  'Seg. Trabalho': 'TST',
   'RMA': 'Manutenção',
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Download, Printer, X } from 'lucide-react'
-import { publicAsset } from './paths'
+import { brandAssets } from './paths'
 import { buildListPdf, type PrintDocument, type PrintFormat } from './inventoryPrint'
 
 export function PrintDialog({ document, thermal = true, onClose }: { document: PrintDocument; thermal?: boolean; onClose: () => void }) {
@@ -14,7 +14,7 @@ export function PrintDialog({ document, thermal = true, onClose }: { document: P
     if (preview) { preview.opener = null; preview.document.title = 'Preparando impressão'; preview.document.body.textContent = 'Preparando o documento do GIO…' }
     setBusy(true); setError('')
     try {
-      const response = await fetch(publicAsset('alert-logo.png'))
+      const response = await fetch(brandAssets.pdf)
       if (!response.ok) throw new Error('Logo não encontrado')
       const blob = await response.blob()
       const logo = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(blob) })

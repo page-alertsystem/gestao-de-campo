@@ -12,6 +12,7 @@ const projectDirectory = path.resolve(currentDirectory, '..')
 const logsDirectory = path.join(projectDirectory, '.logs')
 const publicConfigPath = path.join(projectDirectory, 'public', 'server-config.json')
 const distConfigPath = path.join(projectDirectory, 'dist', 'server-config.json')
+const controlLogoPath = path.join(projectDirectory, 'public', 'brand', 'grupo_alert_colorido.svg')
 const serverPidPath = path.join(projectDirectory, '.gio-server.pid')
 const tunnelPidPath = path.join(projectDirectory, '.gio-tunnel.pid')
 const cloudflaredPath = path.join(projectDirectory, '.tools', 'cloudflared.exe')
@@ -327,7 +328,7 @@ const page = `<!doctype html>
     main { width: min(1040px, calc(100% - 32px)); margin: 0 auto; padding: 42px 0 60px; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
     .brand { display: flex; align-items: center; gap: 15px; }
-    .logo { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 16px; background: #ff7a00; color: white; font-size: 22px; font-weight: 900; box-shadow: 0 12px 30px rgba(255,122,0,.25); }
+    .logo { width: 156px; height: auto; display: block; }
     h1 { margin: 0; font-size: clamp(24px, 4vw, 38px); line-height: 1.05; }
     .subtitle { color: #667078; margin: 7px 0 0; }
     .local { color: #667078; font-size: 13px; background: rgba(255,255,255,.72); border: 1px solid #dfe4e1; padding: 9px 12px; border-radius: 999px; }
@@ -359,7 +360,7 @@ const page = `<!doctype html>
 <body>
   <main>
     <header>
-      <div class="brand"><div class="logo">GIO</div><div><h1>Central de Controle</h1><p class="subtitle">Servidor local e conexão pública</p></div></div>
+      <div class="brand"><img class="logo" src="/brand-logo.svg" alt="Grupo Alert" /><div><h1>Central de Controle</h1><p class="subtitle">Servidor local e conexão pública</p></div></div>
       <span class="local">Disponível somente neste computador</span>
     </header>
     <section class="grid">
@@ -451,6 +452,18 @@ const server = http.createServer(async (request, response) => {
     return
   }
 
+  if (request.method === 'GET' && url.pathname === '/brand-logo.svg') {
+    try {
+      const logo = await readFile(controlLogoPath)
+      response.writeHead(200, { 'content-type': 'image/svg+xml; charset=utf-8', 'cache-control': 'public, max-age=3600' })
+      response.end(logo)
+    } catch {
+      response.writeHead(404)
+      response.end()
+    }
+    return
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/status') {
     sendJson(response, 200, await getStatus())
     return
@@ -496,4 +509,3 @@ const server = http.createServer(async (request, response) => {
 server.listen(controllerPort, '127.0.0.1', () => {
   console.log(`Central de Controle GIO disponível em http://127.0.0.1:${controllerPort}`)
 })
-

@@ -2,7 +2,7 @@ import { FormEvent, PointerEvent, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Camera, CarFront, ChevronRight, Gauge, MapPin, PenLine, Plus, Trash2, X } from 'lucide-react'
 import { jsPDF } from 'jspdf'
 import type { KmRecord, Vehicle } from './store'
-import { publicAsset } from './paths'
+import { brandAssets } from './paths'
 
 const vehiclePhotos = [
   'Frente do veículo', 'Porta do motorista', 'Banco do motorista', 'Porta traseira — motorista',
@@ -173,8 +173,8 @@ async function createVehiclePdf({ record, vehicle, signature, vehicleImages, dam
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
   const code = `TROCA-${record.vehicle}-${new Date(record.createdAt).getTime()}`
   try {
-    const logo = await fetch(publicAsset('alert-logo.png')).then(response => response.blob()).then(blobToDataUrl)
-    pdf.addImage(logo, 'PNG', 15, 12, 48, 24)
+    const logo = await fetch(brandAssets.pdf).then(response => response.blob()).then(blobToDataUrl)
+    pdf.addImage(logo, 'PNG', 15, 12, 48, 16.1)
   } catch { /* O título textual mantém o documento identificável. */ }
   pdf.setTextColor(48, 51, 54)
   pdf.setFont('helvetica', 'bold')

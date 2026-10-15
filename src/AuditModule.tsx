@@ -3,9 +3,9 @@ import { AlertTriangle, CalendarDays, Camera, CheckCircle2, ChevronLeft, Chevron
 import { jsPDF } from 'jspdf'
 import { hasProfile } from './access'
 import type { AppData, AuditAnswer, AuditCategory, AuditItemResult, AuditRecord, InventoryItem } from './store'
-import { publicAsset } from './paths'
+import { brandAssets } from './paths'
 import { auditCategoryForItem, itemAuditStatus, itemIdentifier, personalInventory } from './personalInventory'
-import { auditAnswerIsNegative, auditAnswerLabel, auditItemStatus, auditSummaryStatus, ladderAnswerOptions, ladderBlockedMessage, ladderIsApproved, ladderNonConformities, ladderQuestions } from './auditChecklist'
+import { auditAnswerIsNegative, auditAnswerLabel, auditItemStatus, auditSummaryStatus, ladderAnswerOptions, ladderBlockedMessage, ladderNonConformities, ladderQuestions } from './auditChecklist'
 
 const commonQuestions = [
   'O item está funcionando corretamente?',
@@ -15,6 +15,10 @@ const commonQuestions = [
   'Precisa de manutenção preventiva ou corretiva?',
   'Está aprovado para continuar em uso?',
 ]
+
+function configuredQuestions(data: AppData, item: InventoryItem) {
+  return data.equipmentCategories.find(category => category.id === item.equipmentCategoryId && category.active)?.questions ?? []
+}
 
 export type AuditStart = { category: AuditCategory; personId: string; personName: string; items: InventoryItem[]; scheduledDate: string; startedAt: string }
 
@@ -87,9 +91,11 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
   const [closingResults, setClosingResults] = useState<AuditItemResult[] | null>(null)
   const item = start.items[index]
   const isLadder = start.category === 'Escadas'
+  const customQuestions = configuredQuestions(data, item)
+  const usesConformityAnswers = isLadder || customQuestions.length > 0
   const restriction = data.inventory.find(entry => entry.id === item.id)?.ladderRestriction
   const restricted = Boolean(restriction)
-  const questions = isLadder ? ladderQuestions : commonQuestions
+  const questions = isLadder ? ladderQuestions : customQuestions.length ? customQuestions : commonQuestions
   const complete = Object.keys(answers).length === questions.length && Boolean(photo)
 
   const chooseAnswer = (questionIndex: number, answer: AuditAnswer) => {
@@ -127,7 +133,10 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
     if (!complete) return
     const nonConformities = isLadder ? questions.filter((_, questionIndex) => answers[questionIndex] === 'Não conforme') : []
     const restrictionQuestions = [...new Set([...(restriction?.questions ?? []), ...nonConformities])]
-    const result: AuditItemResult = { inventoryItemId: item.id, equipment: item.equipment, code: item.code, currentIdentifier: currentIdentifier.trim(), newIdentifier: newIdentifier.trim(), observation: observation.trim(), restrictionReason: isLadder && (restricted || nonConformities.length > 0) ? `${ladderBlockedMessage}\n${restrictionQuestions.join('\n')}` : undefined, answers: questions.map((question, questionIndex) => ({ question, answer: answers[questionIndex] })), photo, approved: isLadder ? ladderIsApproved(answers, restricted) : answers[questions.length - 1] === true }
+    const approved = usesConformityAnswers
+      ? !restricted && questions.every((_, questionIndex) => answers[questionIndex] === 'Conforme' || answers[questionIndex] === 'Não aplicável')
+      : answers[questions.length - 1] === true
+    const result: AuditItemResult = { inventoryItemId: item.id, equipment: item.equipment, code: item.code, currentIdentifier: currentIdentifier.trim(), newIdentifier: newIdentifier.trim(), observation: observation.trim(), restrictionReason: isLadder && (restricted || nonConformities.length > 0) ? `${ladderBlockedMessage}\n${restrictionQuestions.join('\n')}` : undefined, answers: questions.map((question, questionIndex) => ({ question, answer: answers[questionIndex] })), photo, approved }
     const nextResults = [...results]
     nextResults[index] = result
     setResults(nextResults)
@@ -152,7 +161,7 @@ export function AuditWizard({ data, start, onCancel, onComplete }: { data: AppDa
       <section className="surface audit-item-info"><div><span>Equipamento</span><b>{item.equipment}</b></div><div><span>Marca / modelo</span><b>{[item.brand, item.model].filter(Boolean).join(' / ') || 'Não informado'}</b></div><div><span>Pessoa auditada</span><b>{start.personName}</b></div></section>
       {isLadder && restricted && <div className="ladder-restriction-banner" role="status"><AlertTriangle size={22} /><p>{ladderBlockedMessage}</p></div>}
       <section className="surface audit-identifiers"><div className="section-heading"><div><p className="eyebrow">Identificação do equipamento</p><h3>Identificadores e observação</h3></div></div><div className="form-grid"><label>Identificador atual<input type="text" maxLength={120} value={currentIdentifier} onChange={event => setCurrentIdentifier(event.target.value)} placeholder="Texto ou identificação atual" /></label><label>Novo identificador (opcional)<input type="text" maxLength={120} value={newIdentifier} onChange={event => setNewIdentifier(event.target.value)} placeholder="Preencha se houver uma nova identificação" /></label><label className="full">Observação do equipamento (opcional)<textarea rows={2} maxLength={500} value={observation} onChange={event => setObservation(event.target.value)} placeholder="Uma breve observação sobre este equipamento" /></label></div></section>
-      <section className="surface audit-checklist"><div className="section-heading"><div><p className="eyebrow">Checklist obrigatório</p><h3>Condições do equipamento</h3></div><ListChecks size={22} /></div>{isLadder && <p className="table-subtitle">Marque “Não aplicável” somente quando a condição não se aplicar a esta escada. As não conformidades serão apresentadas para revisão ao final do checklist.</p>}{questions.map((question, questionIndex) => <div className={isLadder ? 'audit-question ladder-question' : 'audit-question'} key={question}><p><b>{questionIndex + 1}.</b> {question}</p><div>{isLadder ? ladderAnswerOptions.map(answer => <button key={answer} aria-pressed={answers[questionIndex] === answer} className={`answer-button ${answer === 'Conforme' ? 'yes' : answer === 'Não conforme' ? 'no' : 'not-applicable'}${answers[questionIndex] === answer ? ' active' : ''}`} onClick={() => chooseAnswer(questionIndex, answer)}>{answer}</button>) : <><button className={answers[questionIndex] === true ? 'answer-button yes active' : 'answer-button yes'} onClick={() => chooseAnswer(questionIndex, true)}>Sim</button><button className={answers[questionIndex] === false ? 'answer-button no active' : 'answer-button no'} onClick={() => chooseAnswer(questionIndex, false)}>Não</button></>}</div></div>)}</section>
+      <section className="surface audit-checklist"><div className="section-heading"><div><p className="eyebrow">Checklist obrigatório</p><h3>Condições do equipamento</h3></div><ListChecks size={22} /></div>{usesConformityAnswers && <p className="table-subtitle">As perguntas deste checklist utilizam as respostas Conforme, Não conforme ou Não aplicável.</p>}{questions.map((question, questionIndex) => <div className={usesConformityAnswers ? 'audit-question ladder-question' : 'audit-question'} key={`${questionIndex}-${question}`}><p><b>{questionIndex + 1}.</b> {question}</p><div>{usesConformityAnswers ? ladderAnswerOptions.map(answer => <button key={answer} aria-pressed={answers[questionIndex] === answer} className={`answer-button ${answer === 'Conforme' ? 'yes' : answer === 'Não conforme' ? 'no' : 'not-applicable'}${answers[questionIndex] === answer ? ' active' : ''}`} onClick={() => chooseAnswer(questionIndex, answer)}>{answer}</button>) : <><button className={answers[questionIndex] === true ? 'answer-button yes active' : 'answer-button yes'} onClick={() => chooseAnswer(questionIndex, true)}>Sim</button><button className={answers[questionIndex] === false ? 'answer-button no active' : 'answer-button no'} onClick={() => chooseAnswer(questionIndex, false)}>Não</button></>}</div></div>)}</section>
       <section className="surface audit-photo-section"><div className="section-heading"><div><p className="eyebrow">Evidência obrigatória</p><h3>Foto do equipamento</h3></div><Camera size={22} /></div><label className={photo ? 'audit-photo-field filled' : 'audit-photo-field'}><Camera size={28} /><b>{photo ? 'Foto adicionada' : 'Abrir câmera'}</b><small>{photo ? 'Toque para substituir a foto' : 'Registre a condição atual do equipamento'}</small><input key={item.id} type="file" accept="image/*" capture="environment" onChange={choosePhoto} /></label>{photo && <img className="audit-photo-preview" src={photo} alt={`Registro de ${item.equipment}`} />}</section>
     </main>
     <footer className="audit-wizard-footer"><button className="secondary-button" disabled={index === 0} onClick={() => openItem(index - 1)}><ChevronLeft size={18} /> Anterior</button><p>{Object.keys(answers).length} de {questions.length} respostas · {photo ? 'foto pronta' : 'foto pendente'}</p><button className="primary-button" disabled={!complete} onClick={next}>{index === start.items.length - 1 ? <><PenLine size={18} /> {isLadder ? 'Concluir checklist' : 'Continuar para assinatura'}</> : <>Próximo equipamento <ChevronRight size={18} /></>}</button></footer>
@@ -231,9 +240,9 @@ function SignaturePad({ label, onChange }: { label: string; onChange: (signature
 async function createAuditPdf(record: AuditRecord, responsibleSignature: string, auditedSignature?: string) {
   const pdf = new jsPDF({ unit: 'mm', format: 'a4' })
   let logo = ''
-  try { logo = await fetch(publicAsset('alert-logo.png')).then(response => response.blob()).then(blobToDataUrl) } catch { /* O título mantém o documento identificável. */ }
+  try { logo = await fetch(brandAssets.pdf).then(response => response.blob()).then(blobToDataUrl) } catch { /* O título mantém o documento identificável. */ }
   const header = (title: string, subtitle: string) => {
-    if (logo) pdf.addImage(logo, 'PNG', 15, 10, 44, 22)
+    if (logo) pdf.addImage(logo, 'PNG', 15, 10, 44, 14.7)
     pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); pdf.setTextColor(48, 51, 54); pdf.text(title, 15, 42)
     pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(112, 117, 122); pdf.text(subtitle, 15, 48)
     pdf.setDrawColor(245, 130, 0); pdf.setLineWidth(1); pdf.line(15, 53, 195, 53)

@@ -1,14 +1,13 @@
 import { FormEvent, type ComponentType, type ReactNode, useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle, Bell, Boxes, CalendarClock, CarFront, CheckCircle2, ChevronDown, ChevronRight, ClipboardCheck, ClipboardList,
-  Download, FileBarChart, FileCheck2, FolderOpen, Home, LogOut, MapPin, Menu, PackageCheck, Plus, Route,
-  Printer, Search, Settings, ShieldCheck, Signal, SignalZero, Users, Warehouse, Wrench, X,
+  Download, FileBarChart, FileCheck2, FolderOpen, Home, LogOut, MapPin, Menu, PackageCheck, Plus, Route, ShoppingCart,
+  MessageSquareReply, Printer, Search, Server, Settings, ShieldCheck, Signal, SignalZero, Users, Warehouse, Wrench, X,
 } from 'lucide-react'
 import { KmForm } from './KmForm'
-import { StockRequestForm } from './StockRequestForm'
 import { StockManagement } from './StockManagement'
-import { StockOrdersPage, StockRequestsPage } from './StockOrders'
 import { MaterialWriteOffModal, MaterialWriteOffsPage, StockApprovals } from './StockWorkflow'
+import { EquipmentApprovalsPage, EquipmentStockRequestsPage, PersonalEquipmentRequestModal } from './EquipmentWorkflow'
 import { AuditPage, AuditWizard, type AuditStart } from './AuditModule'
 import { AdminCatalogs } from './AdminCatalogs'
 import { DamagedEquipmentPage, RmaRequestPage } from './MaintenanceModule'
@@ -16,20 +15,23 @@ import { fetchSurveyStatus, nextSurveySyncTime, SurveyPage, surveyNeedsStatusSyn
 import { ReportsPage, type ReportId } from './ReportsModule'
 import { DocumentsPage, type DocumentSection } from './DocumentsModule'
 import { allowedPagesForProfiles, hasProfile, normalizeProfiles, profileDescriptions, profileNames, profileSummary, type Page } from './access'
-import { accountFromPerson, formatQuantity, hashPassword, loadAppData, normalizeAppData, saveAppData, type AppData, type InventoryItem, type StockRequest } from './store'
+import { accountFromPerson, formatQuantity, hashPassword, loadAppData, normalizeAppData, saveAppData, type AppData, type EquipmentType, type InventoryItem } from './store'
 import { clearServerSession, initializeCentralData, loginCentralServer, saveCentralData } from './serverApi'
-import { publicAsset } from './paths'
+import { brandAssets } from './paths'
 import { itemAuditStatus, itemIdentifier, latestItemAudit, personalInventory, upcomingPersonalAudits } from './personalInventory'
 import { inventoryPrintDocument, type PrintDocument } from './inventoryPrint'
 import { PrintDialog } from './PrintDialog'
 import { recordCompletedAudit } from './auditChecklist'
 import { AprApprovedPage } from './AprModule'
+import { ReturnCallPage } from './ReturnCallModule'
+import { SystemPreventivePage, SystemPreventiveReportsPage } from './SystemPreventiveModule'
 
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; formOpenedAt: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
 
 const nav: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'inicio', label: 'Início', icon: Home },
+  { id: 'atendimento-preventiva', label: 'Atendimento', icon: FileCheck2 },
   { id: 'operacao-dia', label: 'Operação', icon: Route },
   { id: 'gestao-auditoria', label: 'Gestão', icon: ClipboardCheck },
   { id: 'pessoal-ferramentas', label: 'Pessoal', icon: Users },
@@ -49,27 +51,30 @@ const actions: { label: ActionName; detail: string; icon: ComponentType<{ size?:
 ]
 
 const dayActions = actions.filter(item => item.label !== 'Esqueci meu ponto')
+const attendancePages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
+  { id: 'atendimento-preventiva', label: 'Preventiva sistêmica', icon: Server },
+]
 const operationPages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'operacao-km', label: 'Relatório de KM', icon: CarFront },
   { id: 'operacao-dia', label: 'Registro do dia', icon: ClipboardCheck },
   { id: 'operacao-ponto', label: 'Esqueci meu ponto', icon: CalendarClock },
   { id: 'operacao-apr', label: 'APR Aprovada', icon: FileCheck2 },
+  { id: 'operacao-retorno', label: 'Chamado de retorno', icon: MessageSquareReply },
 ]
 const personalPages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'pessoal-ferramentas', label: 'Ferramentas', icon: Wrench },
-  { id: 'pessoal-insumos', label: 'Insumos', icon: PackageCheck },
   { id: 'pessoal-epis', label: 'EPIs', icon: ShieldCheck },
   { id: 'pessoal-aprovacoes', label: 'Aprovações', icon: CheckCircle2 },
 ]
 const stockPages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
-  { id: 'estoque-pedidos', label: 'Pedidos', icon: ClipboardList },
-  { id: 'estoque-baixas', label: 'Baixa de Materiais', icon: ClipboardCheck },
+  { id: 'estoque-solicitacoes-equipamentos', label: 'Solicitações de equipamentos', icon: ShoppingCart },
+  { id: 'estoque-baixas', label: 'Devoluções de materiais', icon: ClipboardCheck },
   { id: 'estoque-gerenciamento', label: 'Gerenciamento', icon: Warehouse },
 ]
 const managementPages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'gestao-auditoria', label: 'Auditoria', icon: ShieldCheck },
-  { id: 'gestao-solicitacoes', label: 'Solicitações ao estoque', icon: PackageCheck },
-  { id: 'gestao-levantamento', label: 'Levantamento', icon: MapPin },
+  { id: 'gestao-aprovacao-equipamentos', label: 'Aprovação de equipamentos', icon: PackageCheck },
+  { id: 'gestao-levantamento', label: 'Solicitação de levantamento', icon: MapPin },
 ]
 const maintenancePages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'manutencao-rma', label: 'RMA', icon: Wrench },
@@ -80,19 +85,19 @@ const documentPages: { id: Page; section: DocumentSection; label: string; icon: 
   { id: 'documentos-troca-veiculo', section: 'vehicle-change', label: 'Troca de veículo', icon: CarFront },
   { id: 'documentos-aprs', section: 'aprs', label: 'APRs', icon: FileCheck2 },
 ]
-const reportPages: { id: Page; reportId: ReportId; label: string; icon: ComponentType<{ size?: number }> }[] = [
+const reportPages: { id: Page; reportId?: ReportId; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'relatorios-km', reportId: 'km', label: 'KM', icon: CarFront },
   { id: 'relatorios-registro-dia', reportId: 'registro-dia', label: 'Registro do dia', icon: MapPin },
   { id: 'relatorios-ponto', reportId: 'ponto', label: 'Esqueci meu ponto', icon: ClipboardCheck },
   { id: 'relatorios-auditoria', reportId: 'auditoria', label: 'Auditorias', icon: ShieldCheck },
-  { id: 'relatorios-solicitacoes', reportId: 'solicitacoes', label: 'Solicitações ao estoque', icon: PackageCheck },
   { id: 'relatorios-ferramentas', reportId: 'ferramentas', label: 'Ferramentas', icon: Wrench },
   { id: 'relatorios-epis', reportId: 'epis', label: 'EPIs', icon: ShieldCheck },
-  { id: 'relatorios-insumos', reportId: 'insumos', label: 'Insumos', icon: Boxes },
   { id: 'relatorios-baixas', reportId: 'baixas', label: 'Baixa de Materiais', icon: ClipboardCheck },
   { id: 'relatorios-rma', reportId: 'rma', label: 'RMA', icon: Wrench },
   { id: 'relatorios-levantamentos', reportId: 'levantamentos', label: 'Levantamentos', icon: FileBarChart },
+  { id: 'relatorios-preventivas', label: 'Preventivas sistêmicas', icon: Server },
 ]
+const isAttendancePage = (page: Page) => page.startsWith('atendimento-')
 const isOperationPage = (page: Page) => page.startsWith('operacao-')
 const isManagementPage = (page: Page) => page.startsWith('gestao-')
 const isPersonalPage = (page: Page) => page.startsWith('pessoal-')
@@ -117,6 +122,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('inicio')
   const [online, setOnline] = useState(navigator.onLine)
   const [drawer, setDrawer] = useState(false)
+  const [attendanceOpen, setAttendanceOpen] = useState(false)
   const [operationOpen, setOperationOpen] = useState(false)
   const [managementOpen, setManagementOpen] = useState(false)
   const [personalOpen, setPersonalOpen] = useState(false)
@@ -126,7 +132,6 @@ export default function App() {
   const [reportsOpen, setReportsOpen] = useState(false)
   const [activeAction, setActiveAction] = useState<ActionName | null>(null)
   const [kmOpen, setKmOpen] = useState(false)
-  const [requestOpen, setRequestOpen] = useState(false)
   const [activeAudit, setActiveAudit] = useState<AuditStart | null>(null)
   const [toast, setToast] = useState('')
   const [pendingSync, setPendingSync] = useState(0)
@@ -204,6 +209,7 @@ export default function App() {
 
   const navigate = (next: Page) => {
     setPage(next)
+    if (isAttendancePage(next)) setAttendanceOpen(true)
     if (isOperationPage(next)) setOperationOpen(true)
     if (isManagementPage(next)) setManagementOpen(true)
     if (isPersonalPage(next)) setPersonalOpen(true)
@@ -232,7 +238,7 @@ export default function App() {
     }
   }
 
-  if (loading) return <main className="loading-page"><img src={publicAsset('alert-logo.png')} alt="Alert" /><span>Preparando a GIO...</span></main>
+  if (loading) return <main className="loading-page"><img src={brandAssets.color} alt="Grupo Alert" /><span>Preparando a GIO...</span></main>
   if (!data) return <main className="loading-page"><AlertTriangle /><b>Não foi possível abrir os dados locais.</b></main>
   if (!logged) return <Login onLogin={async (email, password) => {
     const central = await loginCentralServer(email, password)
@@ -272,6 +278,7 @@ export default function App() {
   const currentProfiles = normalizeProfiles(currentPerson?.groups)
   const allowedPages = allowedPagesForProfiles(currentProfiles)
   const visiblePage: Page = allowedPages.has(page) ? page : 'inicio'
+  const visibleAttendancePages = attendancePages.filter(item => allowedPages.has(item.id))
   const visibleOperationPages = operationPages.filter(item => allowedPages.has(item.id))
   const visibleManagementPages = managementPages.filter(item => allowedPages.has(item.id))
   const visiblePersonalPages = personalPages.filter(item => allowedPages.has(item.id))
@@ -280,6 +287,7 @@ export default function App() {
   const visibleDocumentPages = documentPages.filter(item => allowedPages.has(item.id))
   const visibleReportPages = reportPages.filter(item => allowedPages.has(item.id))
   const visibleNav = nav.filter(item => {
+    if (item.label === 'Atendimento') return visibleAttendancePages.length > 0
     if (item.label === 'Operação') return visibleOperationPages.length > 0
     if (item.label === 'Gestão') return visibleManagementPages.length > 0
     if (item.label === 'Pessoal') return visiblePersonalPages.length > 0
@@ -293,18 +301,27 @@ export default function App() {
   const canAuditAll = hasProfile(currentProfiles, 'Auditoria')
   const activeReport = visibleReportPages.find(item => item.id === visiblePage)
   const activeDocument = visibleDocumentPages.find(item => item.id === visiblePage)
-  const title = operationPages.find(item => item.id === visiblePage)?.label ?? managementPages.find(item => item.id === visiblePage)?.label ?? personalPages.find(item => item.id === visiblePage)?.label ?? stockPages.find(item => item.id === visiblePage)?.label ?? maintenancePages.find(item => item.id === visiblePage)?.label ?? activeDocument?.label ?? activeReport?.label ?? nav.find(item => item.id === visiblePage)?.label ?? 'Início'
+  const title = attendancePages.find(item => item.id === visiblePage)?.label ?? operationPages.find(item => item.id === visiblePage)?.label ?? managementPages.find(item => item.id === visiblePage)?.label ?? personalPages.find(item => item.id === visiblePage)?.label ?? stockPages.find(item => item.id === visiblePage)?.label ?? maintenancePages.find(item => item.id === visiblePage)?.label ?? activeDocument?.label ?? activeReport?.label ?? nav.find(item => item.id === visiblePage)?.label ?? 'Início'
   const initials = data.account.name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase()
 
   return <div className="app-shell">
     <aside className={drawer ? 'sidebar open' : 'sidebar'}>
       <div className="brand-block">
-        <div className="brand-logo-card"><img src={publicAsset('alert-logo.png')} alt="Alert" /></div>
+        <div className="brand-logo-card"><img src={brandAssets.onDark} alt="Grupo Alert" /></div>
         <div><b>GIO</b><span>Gestão Integrada<br />de Operações</span></div>
       </div>
       <nav className="main-nav" aria-label="Navegação principal">
         {visibleNav.map(item => {
           const Icon = item.icon
+          if (item.label === 'Atendimento') return <div className="nav-group" key={item.id}>
+            <button className={isAttendancePage(visiblePage) ? 'nav-item active' : 'nav-item'} onClick={() => setAttendanceOpen(current => !current)} aria-expanded={attendanceOpen}>
+              <Icon size={20} /><span>{item.label}</span><ChevronDown className={attendanceOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
+            </button>
+            {attendanceOpen && <div className="nav-submenu">{visibleAttendancePages.map(subitem => {
+              const SubIcon = subitem.icon
+              return <button key={subitem.id} className={visiblePage === subitem.id ? 'nav-subitem active' : 'nav-subitem'} onClick={() => navigate(subitem.id)}><SubIcon size={16} /><span>{subitem.label}</span></button>
+            })}</div>}
+          </div>
           if (item.label === 'Operação') return <div className="nav-group" key={item.id}>
             <button className={isOperationPage(visiblePage) ? 'nav-item active' : 'nav-item'} onClick={() => setOperationOpen(current => !current)} aria-expanded={operationOpen}>
               <Icon size={20} /><span>{item.label}</span><ChevronDown className={operationOpen ? 'nav-chevron open' : 'nav-chevron'} size={17} />
@@ -401,29 +418,32 @@ export default function App() {
 
       <main className="page-content">
         {toast && <div className="toast" role="status"><CheckCircle2 size={19} />{toast}</div>}
-        {visiblePage === 'inicio' && <Dashboard data={data} allowedPages={allowedPages} profiles={currentProfiles} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} onRequest={() => setRequestOpen(true)} />}
+        {visiblePage === 'inicio' && <Dashboard data={data} profiles={currentProfiles} onAction={setActiveAction} onNavigate={navigate} onKm={() => setKmOpen(true)} />}
+        {visiblePage === 'atendimento-preventiva' && <SystemPreventivePage data={data} onChange={updateData} />}
         {['operacao-km', 'operacao-dia', 'operacao-ponto'].includes(visiblePage) && <OperationPage section={visiblePage} data={data} onAction={setActiveAction} onKm={() => setKmOpen(true)} />}
         {visiblePage === 'operacao-apr' && <AprApprovedPage data={data} onChange={updateData} />}
+        {visiblePage === 'operacao-retorno' && <ReturnCallPage data={data} onChange={updateData} />}
         {visiblePage === 'gestao-auditoria' && <AuditPage data={data} allowedCategories={canAuditAll ? ['Ferramentas', 'EPIs', 'Escadas'] : ['Escadas']} onStart={setActiveAudit} />}
-        {visiblePage === 'gestao-solicitacoes' && <StockRequestsPage data={data} onNewRequest={() => setRequestOpen(true)} />}
+        {visiblePage === 'gestao-aprovacao-equipamentos' && <EquipmentApprovalsPage data={data} onChange={updateData} />}
         {visiblePage === 'gestao-levantamento' && <SurveyPage data={data} onChange={updateData} />}
-        {['pessoal-ferramentas', 'pessoal-insumos', 'pessoal-epis'].includes(visiblePage) && <StockPage section={visiblePage} data={data} onChange={updateData} />}
+        {['pessoal-ferramentas', 'pessoal-epis'].includes(visiblePage) && <StockPage section={visiblePage} data={data} onChange={updateData} />}
         {visiblePage === 'pessoal-aprovacoes' && <StockApprovals data={data} onChange={updateData} />}
         {visiblePage === 'estoque-baixas' && <MaterialWriteOffsPage data={data} onChange={updateData} />}
-        {visiblePage === 'estoque-pedidos' && <StockOrdersPage data={data} onChange={updateData} />}
+        {visiblePage === 'estoque-solicitacoes-equipamentos' && <EquipmentStockRequestsPage data={data} onChange={updateData} />}
         {visiblePage === 'estoque-gerenciamento' && canManageStock && <StockManagement data={data} onChange={updateData} />}
         {visiblePage === 'manutencao-rma' && <RmaRequestPage data={data} onChange={updateData} />}
         {visiblePage === 'manutencao-danificados' && <DamagedEquipmentPage data={data} onChange={updateData} />}
         {activeDocument && <DocumentsPage data={data} section={activeDocument.section} />}
-        {activeReport && <ReportsPage key={activeReport.reportId} data={data} reportId={activeReport.reportId} />}
+        {activeReport?.reportId && <ReportsPage key={activeReport.reportId} data={data} reportId={activeReport.reportId} />}
+        {visiblePage === 'relatorios-preventivas' && <SystemPreventiveReportsPage data={data} />}
         {visiblePage === 'configuracoes' && <SettingsPage data={data} onChange={updateData} />}
       </main>
 
       <nav className="mobile-nav" aria-label="Navegação móvel">
         {visibleNav.map(item => {
           const Icon = item.icon
-          const active = item.label === 'Operação' ? isOperationPage(visiblePage) : item.label === 'Gestão' ? isManagementPage(visiblePage) : item.label === 'Pessoal' ? isPersonalPage(visiblePage) : item.label === 'Estoque' ? isStockPage(visiblePage) : item.label === 'Manutenção' ? isMaintenancePage(visiblePage) : item.label === 'Documentos' ? isDocumentPage(visiblePage) : item.label === 'Relatórios' ? isReportPage(visiblePage) : visiblePage === item.id
-          const target = item.label === 'Operação' ? visibleOperationPages[0]?.id : item.label === 'Gestão' ? visibleManagementPages[0]?.id : item.label === 'Pessoal' ? visiblePersonalPages[0]?.id : item.label === 'Estoque' ? visibleStockPages[0]?.id : item.label === 'Manutenção' ? visibleMaintenancePages[0]?.id : item.label === 'Documentos' ? visibleDocumentPages[0]?.id : item.label === 'Relatórios' ? visibleReportPages[0]?.id : item.id
+          const active = item.label === 'Atendimento' ? isAttendancePage(visiblePage) : item.label === 'Operação' ? isOperationPage(visiblePage) : item.label === 'Gestão' ? isManagementPage(visiblePage) : item.label === 'Pessoal' ? isPersonalPage(visiblePage) : item.label === 'Estoque' ? isStockPage(visiblePage) : item.label === 'Manutenção' ? isMaintenancePage(visiblePage) : item.label === 'Documentos' ? isDocumentPage(visiblePage) : item.label === 'Relatórios' ? isReportPage(visiblePage) : visiblePage === item.id
+          const target = item.label === 'Atendimento' ? visibleAttendancePages[0]?.id : item.label === 'Operação' ? visibleOperationPages[0]?.id : item.label === 'Gestão' ? visibleManagementPages[0]?.id : item.label === 'Pessoal' ? visiblePersonalPages[0]?.id : item.label === 'Estoque' ? visibleStockPages[0]?.id : item.label === 'Manutenção' ? visibleMaintenancePages[0]?.id : item.label === 'Documentos' ? visibleDocumentPages[0]?.id : item.label === 'Relatórios' ? visibleReportPages[0]?.id : item.id
           return <button key={item.id} className={active ? 'active' : ''} onClick={() => target && navigate(target)}><Icon size={20} /><span>{item.label === 'Configurações' ? 'Mais' : item.label}</span></button>
         })}
       </nav>
@@ -431,12 +451,6 @@ export default function App() {
 
     {activeAction && <QuickRegister action={activeAction} online={online} clients={data.clients.filter(item => item.active).map(item => item.name)} technicians={data.people.filter(item => item.active && item.id !== data.account.id).map(item => item.name)} onClose={() => setActiveAction(null)} onSave={register} />}
     {kmOpen && <KmForm vehicles={data.vehicles.filter(item => item.active)} clients={data.clients.filter(item => item.active).map(item => item.name)} driver={data.account.name} onClose={() => setKmOpen(false)} onComplete={record => { const next = { ...data, kmRecords: [...data.kmRecords, record], vehicles: data.vehicles.map(vehicle => vehicle.plate === record.vehicle ? { ...vehicle, mileage: record.mileage } : vehicle) }; updateData(next); setKmOpen(false); showToast('Relatório de KM registrado com sucesso.') }} />}
-    {requestOpen && <StockRequestForm code={nextRequestCode(data)} requester={data.account.name} people={data.people} clients={data.clients} onClose={() => setRequestOpen(false)} onComplete={request => {
-      const stockRequest: StockRequest = { id: crypto.randomUUID(), ...request, createdAt: new Date().toISOString(), status: 'Pedido recebido', author: data.account.name }
-      const technicianExists = data.people.some(person => person.name.trim().toLowerCase() === request.technician.trim().toLowerCase())
-      const people = technicianExists ? data.people : [...data.people, { id: crypto.randomUUID(), name: request.technician, email: '', groups: ['Técnico'], active: true, canLogin: false }]
-      updateData({ ...data, people, stockRequests: [...data.stockRequests, stockRequest] }); setRequestOpen(false); showToast(`Solicitação ${request.code} criada com sucesso.`)
-    }} />}
     {activeAudit && <AuditWizard data={data} start={activeAudit} onCancel={() => setActiveAudit(null)} onComplete={audit => { const nextDate = new Date(`${audit.nextAuditDate}T12:00:00`).toLocaleDateString('pt-BR'); updateData(recordCompletedAudit(data, audit), `Auditoria concluída e PDF salvo. Próxima auditoria: ${nextDate}.`); setActiveAudit(null) }} />}
   </div>
 }
@@ -456,7 +470,7 @@ function Login({ onLogin }: { onLogin: (email: string, password: string) => Prom
   }
   return <main className="login-page">
     <section className="login-message">
-      <div className="login-brand"><span className="login-logo"><img src={publicAsset('alert-logo.png')} alt="Alert" /></span><b>GIO</b></div>
+      <div className="login-brand"><span className="login-logo"><img src={brandAssets.onDark} alt="Grupo Alert" /></span><b>GIO</b></div>
       <p className="eyebrow light">Gestão Integrada de Operações</p>
       <h1>Operação organizada.<br />Equipe conectada.</h1>
       <p>Uma única plataforma para acompanhar equipes, trajetos, veículos, estoque e auditorias.</p>
@@ -464,7 +478,7 @@ function Login({ onLogin }: { onLogin: (email: string, password: string) => Prom
     </section>
     <section className="login-panel">
       <form className="login-card" onSubmit={submit}>
-        <div className="mobile-login-brand"><span className="login-logo"><img src={publicAsset('alert-logo.png')} alt="Alert" /></span><b>GIO</b></div>
+        <div className="mobile-login-brand"><span className="login-logo"><img src={brandAssets.color} alt="Grupo Alert" /></span><b>GIO</b></div>
         <p className="eyebrow">Acesso seguro</p>
         <h2>Bem-vindo à GIO</h2>
         <p className="form-intro">Entre com seu e-mail e senha para continuar.</p>
@@ -489,10 +503,10 @@ function PasswordChange({ onSave, onSignOut }: { onSave: (password: string) => P
     if (password !== confirmation) return setError('As senhas informadas são diferentes.')
     await onSave(password)
   }
-  return <main className="password-change-page"><form className="login-card" onSubmit={submit}><img className="password-logo" src={publicAsset('alert-logo.png')} alt="Alert" /><p className="eyebrow">Primeiro acesso</p><h2>Crie sua nova senha</h2><p className="form-intro">A senha provisória só pode ser usada uma vez.</p><label>Nova senha<input type="password" value={password} onChange={event => setPassword(event.target.value)} required /></label><label>Confirmar nova senha<input type="password" value={confirmation} onChange={event => setConfirmation(event.target.value)} required /></label>{error && <div className="login-error"><AlertTriangle size={17} />{error}</div>}<button className="primary-button full">Salvar nova senha <ChevronRight size={18} /></button><button type="button" className="text-button" onClick={onSignOut}>Voltar ao login</button></form></main>
+  return <main className="password-change-page"><form className="login-card" onSubmit={submit}><img className="password-logo" src={brandAssets.color} alt="Grupo Alert" /><p className="eyebrow">Primeiro acesso</p><h2>Crie sua nova senha</h2><p className="form-intro">A senha provisória só pode ser usada uma vez.</p><label>Nova senha<input type="password" value={password} onChange={event => setPassword(event.target.value)} required /></label><label>Confirmar nova senha<input type="password" value={confirmation} onChange={event => setConfirmation(event.target.value)} required /></label>{error && <div className="login-error"><AlertTriangle size={17} />{error}</div>}<button className="primary-button full">Salvar nova senha <ChevronRight size={18} /></button><button type="button" className="text-button" onClick={onSignOut}>Voltar ao login</button></form></main>
 }
 
-function Dashboard({ data, allowedPages, profiles, onAction, onNavigate, onKm, onRequest }: { data: AppData; allowedPages: Set<Page>; profiles: string[]; onAction: (action: ActionName) => void; onNavigate: (page: Page) => void; onKm: () => void; onRequest: () => void }) {
+function Dashboard({ data, profiles, onAction, onNavigate, onKm }: { data: AppData; profiles: string[]; onAction: (action: ActionName) => void; onNavigate: (page: Page) => void; onKm: () => void }) {
   const date = useMemo(() => new Intl.DateTimeFormat('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }).format(new Date()), [])
   const activities = [
     ...data.trajectories.filter(item => item.author === data.account.name && new Date(item.recordedAt).toLocaleDateString('en-CA') === new Date().toLocaleDateString('en-CA')).map(item => ({ title: item.type, detail: `${item.client || 'Sem cliente'} · ${item.declaredTime}`, tone: item.type === 'Esqueci meu ponto' ? 'warning' : 'success', recordedAt: item.recordedAt })),
@@ -514,7 +528,7 @@ function Dashboard({ data, allowedPages, profiles, onAction, onNavigate, onKm, o
       <button className="attention-card warning" onClick={() => onNavigate('pessoal-aprovacoes')}><span><PackageCheck size={21} /></span><div><b>Aprovações pendentes</b><small>{pendingApprovals} aguardando sua confirmação</small></div><ChevronRight size={19} /></button>
     </section>
 
-    <section className="form-shortcuts"><button onClick={onKm}><span><CarFront size={22} /></span><div><b>Relatório de KM</b><small>Registre antes de ligar o veículo</small></div><ChevronRight size={19} /></button>{allowedPages.has('gestao-solicitacoes') && <button onClick={onRequest}><span><PackageCheck size={22} /></span><div><b>Nova solicitação ao estoque</b><small>Solicite materiais e acompanhe a entrega</small></div><ChevronRight size={19} /></button>}</section>
+    <section className="form-shortcuts"><button onClick={onKm}><span><CarFront size={22} /></span><div><b>Relatório de KM</b><small>Registre antes de ligar o veículo</small></div><ChevronRight size={19} /></button></section>
 
     <section className="content-grid">
       <article className="surface quick-surface" id="home-quick-register">
@@ -562,13 +576,12 @@ function OperationPage({ section, data, onAction, onKm }: { section: Page; data:
 
 function StockPage({ section, data, onChange }: { section: Page; data: AppData; onChange: (data: AppData, message?: string) => void }) {
   const [writeOffItem, setWriteOffItem] = useState<InventoryItem | null>(null)
+  const [requestingType, setRequestingType] = useState<EquipmentType | null>(null)
   const [printDocument, setPrintDocument] = useState<PrintDocument | null>(null)
   const [search, setSearch] = useState('')
   const config = section === 'pessoal-ferramentas'
     ? { title: 'Ferramentas', description: 'Consulte suas ferramentas, escadas e o resultado da última auditoria. Imprima cada bloco separadamente.', filter: (category: string) => category.includes('Ferramenta') || category === 'Escada' }
-    : section === 'pessoal-epis'
-      ? { title: 'EPIs', description: 'Acompanhe e dê baixa nos equipamentos de proteção individual sob sua responsabilidade.', filter: (category: string) => category === 'EPI' }
-      : { title: 'Insumos', description: 'Acompanhe os materiais de consumo e registre quando forem instalados ou devolvidos.', filter: (category: string) => category === 'Insumo' }
+    : { title: 'EPIs', description: 'Acompanhe, solicite e dê baixa nos equipamentos de proteção individual sob sua responsabilidade.', filter: (category: string) => category === 'EPI' }
   const filteredItems = personalInventory(data, data.account.id).filter(item => config.filter(item.category))
   const renderStockTable = (title: string, items: typeof filteredItems, secondary = false) => <section className={secondary ? 'surface table-surface stock-secondary-table' : 'surface table-surface'}>
     <div className="table-toolbar"><div><p className="eyebrow">Estoque individual</p><h3>{title}</h3></div><button className="secondary-button compact" disabled={!items.length} onClick={() => setPrintDocument(inventoryPrintDocument(data, title, items))}><Printer size={17} /> Imprimir este bloco</button></div>
@@ -577,7 +590,7 @@ function StockPage({ section, data, onChange }: { section: Page; data: AppData; 
     </tr> }) : <tr><td colSpan={7} className="table-empty">Nenhum item deste tipo foi atribuído a você.</td></tr>}</tbody></table></div>
   </section>
   return <>
-    <PageIntro eyebrow="Pessoal" title={config.title} description={config.description} action={<label className="search-field"><Search size={17} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar equipamento" /></label>} />
+    <PageIntro eyebrow="Pessoal" title={config.title} description={config.description} action={<div className="page-intro-actions"><label className="search-field"><Search size={17} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar equipamento" /></label><button className="primary-button" onClick={() => setRequestingType(section === 'pessoal-epis' ? 'EPI' : 'Ferramenta')}><Plus size={17} /> Solicitar material</button></div>} />
     <section className="attention-grid stock-summary"><Metric icon={Warehouse} value={String(filteredItems.length)} label={`Tipos de ${config.title.toLowerCase()}`} /><Metric icon={ClipboardCheck} value={String(data.materialUsages.filter(item => item.personId === data.account.id && item.workflowStatus !== 'Cancelado').length)} label="Baixas realizadas" /><Metric icon={Boxes} value={formatQuantity(filteredItems.reduce((total, item) => total + item.quantity, 0))} label="Quantidade atribuída" /></section>
     {section === 'pessoal-ferramentas' ? <>
       {renderStockTable('Ferramentas atribuídas a você', filteredItems.filter(item => item.category === 'Ferramenta pessoal'))}
@@ -585,14 +598,15 @@ function StockPage({ section, data, onChange }: { section: Page; data: AppData; 
       {renderStockTable('Escadas atribuídas a você', filteredItems.filter(item => item.category === 'Escada'), true)}
     </> : renderStockTable(`${config.title} atribuídos a você`, filteredItems)}
     {writeOffItem && <MaterialWriteOffModal data={data} item={writeOffItem} available={writeOffItem.quantity} onClose={() => setWriteOffItem(null)} onChange={onChange} />}
+    {requestingType && <PersonalEquipmentRequestModal data={data} equipmentType={requestingType} onClose={() => setRequestingType(null)} onChange={onChange} />}
     {printDocument && <PrintDialog document={printDocument} onClose={() => setPrintDocument(null)} />}
   </>
 }
 
 function SettingsPage({ data, onChange }: { data: AppData; onChange: (data: AppData, message: string) => void }) {
   return <>
-    <PageIntro eyebrow="Administração" title="Configurações e acessos" description="Cadastre pessoas e atribua um ou mais perfis predefinidos para cada operador." />
-    <section className="settings-grid"><button className="setting-card"><Users size={22} /><div><b>Pessoas e grupos</b><small>{data.people.length} pessoas cadastradas</small></div><ChevronRight size={18} /></button><button className="setting-card"><Warehouse size={22} /><div><b>Clientes e veículos</b><small>{data.clients.length} clientes · {data.vehicles.length} veículos</small></div><ChevronRight size={18} /></button><button className="setting-card"><ShieldCheck size={22} /><div><b>Histórico de segurança</b><small>Administrador com acesso total</small></div><ChevronRight size={18} /></button></section>
+    <PageIntro eyebrow="Administração" title="Configurações e acessos" description="Cadastre pessoas, clientes, veículos, ferramentas rotativas e categorias com checklists próprios." />
+    <section className="settings-grid"><button className="setting-card"><Users size={22} /><div><b>Pessoas e grupos</b><small>{data.people.length} pessoas cadastradas</small></div><ChevronRight size={18} /></button><button className="setting-card"><Warehouse size={22} /><div><b>Cadastros operacionais</b><small>{data.inventory.filter(item => item.category === 'Ferramenta rotativa').length} rotativas · {data.equipmentCategories.length} categorias</small></div><ChevronRight size={18} /></button><button className="setting-card"><ShieldCheck size={22} /><div><b>Histórico de segurança</b><small>Administrador com acesso total</small></div><ChevronRight size={18} /></button></section>
     <section className="surface profile-rules"><div className="section-heading"><div><p className="eyebrow">Perfis predefinidos</p><h3>Acessos da plataforma</h3></div><ShieldCheck size={22} /></div><div className="profile-rule-grid">{profileNames.map(profile => <article className={profile === 'Administrador' ? 'profile-rule admin' : 'profile-rule'} key={profile}><div><b>{profile}</b>{profile !== 'Técnico' && profile !== 'Administrador' && <span>Inclui o acesso do Técnico</span>}</div><p>{profileDescriptions[profile]}</p></article>)}</div><p className="admin-note"><ShieldCheck size={17} />Os perfis são acumuláveis. O Administrador sempre possui acesso total e não depende de combinações.</p></section>
     <AdminCatalogs data={data} onChange={onChange} />
   </>
@@ -645,11 +659,4 @@ function PageIntro({ eyebrow, title, description, action }: { eyebrow: string; t
 
 function Metric({ icon: Icon, value, label, tone = '' }: { icon: ComponentType<{ size?: number }>; value: string; label: string; tone?: string }) {
   return <article className={`metric-card ${tone}`}><span><Icon size={21} /></span><div><b>{value}</b><small>{label}</small></div></article>
-}
-
-function nextRequestCode(data: AppData) {
-  const date = new Date()
-  const prefix = `ALT${String(date.getFullYear()).slice(-2)}${String(date.getMonth() + 1).padStart(2, '0')}`
-  const sequence = data.stockRequests.filter(item => item.code.startsWith(prefix)).length + 1
-  return `${prefix}${String(sequence).padStart(4, '0')}`
 }
