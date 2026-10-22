@@ -6,10 +6,10 @@ import {
 import type { Page } from '../access'
 import { profileSummary } from '../access'
 import type { AppData } from '../store'
-import { brandAssets } from '../paths'
+import { brandAssets, sigaAssets } from '../paths'
 import { appLinks, insideAndroidApp } from '../appLinks'
 
-/** Telas disponíveis no GIO Mobile (o acesso de cada pessoa ainda depende do perfil). */
+/** Telas disponíveis no SIGA Mobile (o acesso de cada pessoa ainda depende do perfil). */
 export const mobilePages: Page[] = [
   'inicio',
   'atendimento-preventiva',
@@ -72,7 +72,7 @@ export function MobileShell({ data, profiles, allowedPages, page, title, online,
   return <div className="m-shell">
     <header className="m-topbar">
       {page === 'inicio'
-        ? <div className="m-brand"><img src={brandAssets.color} alt="Grupo Alert" /><b>GIO <span>Mobile</span></b></div>
+        ? <div className="m-brand"><img src={sigaAssets.compact} alt="SIGA" /><span className="siga-tag">Mobile</span></div>
         : <button className="m-back" onClick={() => onNavigate('inicio')} aria-label="Voltar ao início"><ArrowLeft size={22} /><b>{title}</b></button>}
       <div className="m-top-actions">
         <span className={online ? 'm-status online' : 'm-status offline'} title={online ? 'Online' : 'Sem internet'}>{online ? <Signal size={15} /> : <SignalZero size={15} />}</span>
@@ -92,7 +92,7 @@ export function MobileShell({ data, profiles, allowedPages, page, title, online,
       {children}
     </main>
 
-    {visibleTabs.length > 1 && <nav className="m-tabbar" style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, 1fr)` }} aria-label="Navegação do GIO Mobile">
+    {visibleTabs.length > 1 && <nav className="m-tabbar" style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, 1fr)` }} aria-label="Navegação do SIGA Mobile">
       {visibleTabs.map(tab => {
         const TabIcon = tab.icon
         return <button key={tab.label} className={tab.match(page) ? 'active' : ''} onClick={() => onNavigate(tab.id)}><TabIcon size={22} /><span>{tab.label}</span></button>
@@ -106,7 +106,7 @@ export function MobileShell({ data, profiles, allowedPages, page, title, online,
         <div className="m-sheet-user"><span className="m-avatar large">{initials}</span><div><b>{data.account.name}</b><small>{data.account.email}</small><small>Perfil: {profileSummary(profiles)}</small></div></div>
         {desktopUrl && !insideAndroidApp() && <a className="m-sheet-item" href={desktopUrl}><Monitor size={19} /><span>Abrir versão completa</span><ChevronRight size={17} /></a>}
         <button className="m-sheet-item danger" onClick={() => { setMenuOpen(false); onSignOut() }}><LogOut size={19} /><span>Sair</span><ChevronRight size={17} /></button>
-        <p className="m-sheet-note">GIO Mobile · Grupo Alert</p>
+        <div className="m-sheet-brand"><img src={sigaAssets.compact} alt="SIGA — Sistema Integrado de Gestão Alert" /><img src={brandAssets.color} alt="Grupo Alert" /></div>
       </section>
     </div>}
   </div>
@@ -169,6 +169,6 @@ export function MobileHome({ data, profiles, allowedPages, online, onAction, onN
         : <p className="m-empty">Nenhum registro hoje ainda.</p>}
     </section>
 
-    {showAndroid && <a className="m-download" href={apkUrl}><Smartphone size={22} /><div><b>Instalar o app GIO Mobile</b><small>Baixe o aplicativo para Android</small></div><Download size={20} /></a>}
+    {showAndroid && <a className="m-download" href={apkUrl}><Smartphone size={22} /><div><b>Instalar o app SIGA Mobile</b><small>Baixe o aplicativo para Android</small></div><Download size={20} /></a>}
   </div>
 }

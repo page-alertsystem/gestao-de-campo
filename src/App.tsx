@@ -17,7 +17,7 @@ import { DocumentsPage, type DocumentSection } from './DocumentsModule'
 import { allowedPagesForProfiles, hasProfile, normalizeProfiles, profileDescriptions, profileNames, profileSummary, type Page } from './access'
 import { accountFromPerson, formatQuantity, hashPassword, loadAppData, normalizeAppData, saveAppData, type AppData, type EquipmentType, type InventoryItem } from './store'
 import { clearServerSession, initializeCentralData, loginCentralServer, onServerData, saveCentralData } from './serverApi'
-import { brandAssets } from './paths'
+import { brandAssets, sigaAssets } from './paths'
 import { MobileHome, MobileShell, mobilePages } from './mobile/MobileShell'
 import { appLinks, isPhone } from './appLinks'
 import { itemAuditStatus, itemIdentifier, latestItemAudit, personalInventory, upcomingPersonalAudits } from './personalInventory'
@@ -250,7 +250,7 @@ export default function App({ variant = 'desktop' }: { variant?: 'desktop' | 'mo
     }
   }
 
-  if (loading) return <main className="loading-page"><img src={brandAssets.color} alt="Grupo Alert" /><span>Preparando a GIO...</span></main>
+  if (loading) return <main className="loading-page"><img className="siga-logo" src={sigaAssets.color} alt="SIGA — Sistema Integrado de Gestão Alert" /><span>Preparando o SIGA...</span></main>
   if (!data) return <main className="loading-page"><AlertTriangle /><b>Não foi possível abrir os dados locais.</b></main>
   if (!logged) return <Login variant={variant} onLogin={async (email, password) => {
     const central = await loginCentralServer(email, password)
@@ -351,9 +351,8 @@ export default function App({ variant = 'desktop' }: { variant?: 'desktop' | 'mo
 
   return <div className="app-shell">
     <aside className={drawer ? 'sidebar open' : 'sidebar'}>
-      <div className="brand-block">
-        <div className="brand-logo-card"><img src={brandAssets.onDark} alt="Grupo Alert" /></div>
-        <div><b>GIO</b><span>Gestão Integrada<br />de Operações</span></div>
+      <div className="brand-block siga-brand">
+        <img className="siga-logo" src={sigaAssets.onDark} alt="SIGA — Sistema Integrado de Gestão Alert" />
       </div>
       <nav className="main-nav" aria-label="Navegação principal">
         {visibleNav.map(item => {
@@ -433,6 +432,7 @@ export default function App({ variant = 'desktop' }: { variant?: 'desktop' | 'mo
           return <button key={item.id} className={visiblePage === item.id ? 'nav-item active' : 'nav-item'} onClick={() => navigate(item.id)}><Icon size={20} /><span>{item.label}</span></button>
         })}
       </nav>
+      <div className="sidebar-company"><img src={brandAssets.onDark} alt="Grupo Alert" /></div>
       <div className="sidebar-foot">
         <div className="profile-avatar">{initials}</div>
         <div className="profile-copy"><b>{data.account.name}</b><span>{profileSummary(currentProfiles)}</span></div>
@@ -446,7 +446,7 @@ export default function App({ variant = 'desktop' }: { variant?: 'desktop' | 'mo
       <header className="topbar">
         <div className="topbar-left">
           <button className="icon-button menu-button" onClick={() => setDrawer(true)} aria-label="Abrir menu"><Menu size={22} /></button>
-          <div><span className="breadcrumb">GIO</span><h1>{title}</h1></div>
+          <div><span className="breadcrumb">SIGA</span><h1>{title}</h1></div>
         </div>
         <div className="topbar-actions">
           <span className={online ? 'connection online' : 'connection offline'}>
@@ -497,25 +497,25 @@ function Login({ onLogin, variant = 'desktop' }: { onLogin: (email: string, pass
   }
   return <main className={variant === 'mobile' ? 'login-page mobile-variant' : 'login-page'}>
     <section className="login-message">
-      <div className="login-brand"><span className="login-logo"><img src={brandAssets.onDark} alt="Grupo Alert" /></span><b>GIO</b></div>
-      <p className="eyebrow light">Gestão Integrada de Operações</p>
+      <div className="login-brand"><img className="siga-logo" src={sigaAssets.onDark} alt="SIGA — Sistema Integrado de Gestão Alert" /></div>
       <h1>Operação organizada.<br />Equipe conectada.</h1>
       <p>Uma única plataforma para acompanhar equipes, trajetos, veículos, estoque e auditorias.</p>
       <div className="login-points"><span><CheckCircle2 size={18} />Preparado para celular</span><span><CheckCircle2 size={18} />Funciona mesmo sem internet</span><span><CheckCircle2 size={18} />Acessos por departamento</span></div>
+      <div className="login-company"><span>Uma solução</span><img src={brandAssets.onDark} alt="Grupo Alert" /></div>
     </section>
     <section className="login-panel">
       <form className="login-card" onSubmit={submit}>
-        <div className="mobile-login-brand"><span className="login-logo"><img src={brandAssets.color} alt="Grupo Alert" /></span><b>{variant === 'mobile' ? 'GIO Mobile' : 'GIO'}</b></div>
+        <div className="mobile-login-brand"><img className="siga-logo" src={sigaAssets.color} alt="SIGA — Sistema Integrado de Gestão Alert" />{variant === 'mobile' && <span className="siga-tag">Mobile</span>}</div>
         <p className="eyebrow">Acesso seguro</p>
-        <h2>Bem-vindo à GIO</h2>
+        <h2>Bem-vindo ao SIGA</h2>
         <p className="form-intro">Entre com seu e-mail e senha para continuar.</p>
         <label>E-mail<input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="username" required /></label>
         <label>Senha<div className="password-field"><input type={showPassword ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required /><button type="button" onClick={() => setShowPassword(value => !value)}>{showPassword ? 'Ocultar' : 'Mostrar'}</button></div></label>
         {error && <div className="login-error"><AlertTriangle size={17} />{error}</div>}
         <button className="primary-button full" type="submit" disabled={busy}>{busy ? 'Verificando...' : 'Entrar na plataforma'} {!busy && <ChevronRight size={18} />}</button>
-        <button className="text-button" type="button" onClick={() => setError('Solicite uma nova senha provisória ao administrador da GIO.')}>Preciso de uma nova senha provisória</button>
+        <button className="text-button" type="button" onClick={() => setError('Solicite uma nova senha provisória ao administrador do SIGA.')}>Preciso de uma nova senha provisória</button>
         <div className="preview-note"><ShieldCheck size={18} /><span>Seu acesso e os menus disponíveis são definidos pelos perfis cadastrados pelo administrador.</span></div>
-        {links && variant === 'desktop' && isPhone() && <a className="switch-version" href={links.mobile}>Está no celular? Abrir o GIO Mobile <ChevronRight size={16} /></a>}
+        {links && variant === 'desktop' && isPhone() && <a className="switch-version" href={links.mobile}>Está no celular? Abrir o SIGA Mobile <ChevronRight size={16} /></a>}
         {links && variant === 'mobile' && <a className="switch-version subtle" href={links.desktop}>Abrir a versão completa (computador)</a>}
       </form>
     </section>
@@ -532,7 +532,7 @@ function PasswordChange({ onSave, onSignOut }: { onSave: (password: string) => P
     if (password !== confirmation) return setError('As senhas informadas são diferentes.')
     await onSave(password)
   }
-  return <main className="password-change-page"><form className="login-card" onSubmit={submit}><img className="password-logo" src={brandAssets.color} alt="Grupo Alert" /><p className="eyebrow">Primeiro acesso</p><h2>Crie sua nova senha</h2><p className="form-intro">A senha provisória só pode ser usada uma vez.</p><label>Nova senha<input type="password" value={password} onChange={event => setPassword(event.target.value)} required /></label><label>Confirmar nova senha<input type="password" value={confirmation} onChange={event => setConfirmation(event.target.value)} required /></label>{error && <div className="login-error"><AlertTriangle size={17} />{error}</div>}<button className="primary-button full">Salvar nova senha <ChevronRight size={18} /></button><button type="button" className="text-button" onClick={onSignOut}>Voltar ao login</button></form></main>
+  return <main className="password-change-page"><form className="login-card" onSubmit={submit}><img className="password-logo siga-logo" src={sigaAssets.color} alt="SIGA — Sistema Integrado de Gestão Alert" /><p className="eyebrow">Primeiro acesso</p><h2>Crie sua nova senha</h2><p className="form-intro">A senha provisória só pode ser usada uma vez.</p><label>Nova senha<input type="password" value={password} onChange={event => setPassword(event.target.value)} required /></label><label>Confirmar nova senha<input type="password" value={confirmation} onChange={event => setConfirmation(event.target.value)} required /></label>{error && <div className="login-error"><AlertTriangle size={17} />{error}</div>}<button className="primary-button full">Salvar nova senha <ChevronRight size={18} /></button><button type="button" className="text-button" onClick={onSignOut}>Voltar ao login</button></form></main>
 }
 
 function Dashboard({ data, profiles, onAction, onNavigate, onKm }: { data: AppData; profiles: string[]; onAction: (action: ActionName) => void; onNavigate: (page: Page) => void; onKm: () => void }) {
@@ -547,7 +547,7 @@ function Dashboard({ data, profiles, onAction, onNavigate, onKm }: { data: AppDa
   return <>
     <section className="welcome-row">
       <div><p className="eyebrow">{date}</p><h2>Bom dia, {data.account.name.split(' ')[0]}</h2><p>Perfis ativos: {profileSummary(profiles)}.</p></div>
-      <button className="secondary-button" onClick={() => { void appLinks().then(links => window.open(links.mobile, '_blank', 'noopener')) }}><Download size={17} /> GIO Mobile (celular)</button>
+      <button className="secondary-button" onClick={() => { void appLinks().then(links => window.open(links.mobile, '_blank', 'noopener')) }}><Download size={17} /> SIGA Mobile (celular)</button>
     </section>
 
     <section className="attention-grid home-quick-links">

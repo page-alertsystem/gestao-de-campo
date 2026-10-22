@@ -151,7 +151,7 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
     }
     let nextData: AppData = { ...data, rmaRequests: [...data.rmaRequests, request] }
     const integrationReady = integrationState === 'ready'
-    onChange(nextData, integrationReady ? `Solicitação ${localCode} salva. Enviando ao Movidesk...` : `Solicitação ${localCode} salva no GIO e aguardando integração com o Movidesk.`)
+    onChange(nextData, integrationReady ? `Solicitação ${localCode} salva. Enviando ao Movidesk...` : `Solicitação ${localCode} salva no SIGA e aguardando integração com o Movidesk.`)
 
     if (integrationReady) {
       try {
@@ -160,7 +160,7 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
         nextData = { ...nextData, rmaRequests: nextData.rmaRequests.map(item => item.id === sent.id ? sent : item) }
         onChange(nextData, sent.integrationError ? `Ticket ${ticketId} criado. A foto ficou pendente e pode ser reenviada.` : `Ticket ${ticketId} criado no Movidesk com a foto.`)
       } catch {
-        const failed: RmaRequest = { ...request, integrationError: 'Não foi possível enviar agora. O registro permanece salvo no GIO.' }
+        const failed: RmaRequest = { ...request, integrationError: 'Não foi possível enviar agora. O registro permanece salvo no SIGA.' }
         nextData = { ...nextData, rmaRequests: nextData.rmaRequests.map(item => item.id === failed.id ? failed : item) }
         onChange(nextData, `Solicitação ${localCode} salva. O envio ao Movidesk ficou pendente.`)
       }
@@ -174,7 +174,7 @@ export function RmaRequestPage({ data, onChange }: { data: AppData; onChange: (d
       <div className="section-heading"><div><p className="eyebrow">Novo encaminhamento</p><h3>Dados do equipamento</h3></div><span className="rma-heading-icon"><Wrench size={23} /></span></div>
       <div className={integrationState === 'ready' ? 'rma-integration-state ready' : 'rma-integration-state'}>
         {integrationState === 'ready' ? <CheckCircle2 size={18} /> : integrationState === 'checking' ? <RotateCcw size={18} /> : <AlertTriangle size={18} />}
-        <div><b>{integrationState === 'ready' ? 'Servidor local e Movidesk configurados' : integrationState === 'server-pending' ? 'Servidor local ativo; Movidesk aguarda configuração' : integrationState === 'checking' ? 'Verificando o servidor local...' : 'Acesse pelo servidor local para usar o Movidesk'}</b><small>O registro sempre será salvo no GIO. A credencial do Movidesk ficará protegida somente nesta máquina.</small></div>
+        <div><b>{integrationState === 'ready' ? 'Servidor local e Movidesk configurados' : integrationState === 'server-pending' ? 'Servidor local ativo; Movidesk aguarda configuração' : integrationState === 'checking' ? 'Verificando o servidor local...' : 'Acesse pelo servidor local para usar o Movidesk'}</b><small>O registro sempre será salvo no SIGA. A credencial do Movidesk ficará protegida somente nesta máquina.</small></div>
       </div>
       <form className="rma-form" onSubmit={submit}>
         <div className="rma-form-grid">
@@ -224,7 +224,7 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
       const protocols = new Map(resolved.filter((item): item is { id: string; protocol: string } => Boolean(item)).map(item => [item.id, item.protocol]))
       if (!protocols.size) return
       const next: AppData = { ...data, rmaRequests: data.rmaRequests.map(item => protocols.has(item.id) ? { ...item, movideskTicketId: protocols.get(item.id)! } : item) }
-      onChange(next, 'Número público do ticket Movidesk atualizado no GIO.')
+      onChange(next, 'Número público do ticket Movidesk atualizado no SIGA.')
     })
     return () => { active = false }
   }, [data, onChange])
@@ -259,7 +259,7 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
       const detail = error instanceof Error ? error.message : 'Falha desconhecida.'
       const failed: RmaRequest = { ...request, integrationError: `Não foi possível enviar: ${detail}` }
       const next: AppData = { ...data, rmaRequests: data.rmaRequests.map(item => item.id === request.id ? failed : item) }
-      onChange(next, `${request.localCode} continua salvo no GIO. Tente novamente em instantes.`)
+      onChange(next, `${request.localCode} continua salvo no SIGA. Tente novamente em instantes.`)
     } finally {
       setBusyId('')
     }
@@ -280,11 +280,11 @@ export function DamagedEquipmentPage({ data, onChange }: { data: AppData; onChan
       const next: AppData = { ...data, rmaRequests: data.rmaRequests.map(item => item.id === request.id ? updated : item) }
       savedData = next
       const version = variant === 'full' ? 'completa' : 'resumida'
-      onChange(next, receiving ? `Recebimento confirmado no GIO. A versão ${version} foi aberta.` : `Versão ${version} aberta para reimpressão.`)
+      onChange(next, receiving ? `Recebimento confirmado no SIGA. A versão ${version} foi aberta.` : `Versão ${version} aberta para reimpressão.`)
       await openThermalReceipt(updated, preview, variant)
     } catch {
       preview?.close()
-      onChange(savedData ?? data, 'O recebimento foi mantido no GIO, mas não foi possível abrir o PDF. Use Reimprimir para tentar novamente.')
+      onChange(savedData ?? data, 'O recebimento foi mantido no SIGA, mas não foi possível abrir o PDF. Use Reimprimir para tentar novamente.')
     } finally {
       setBusyId('')
     }
@@ -332,7 +332,7 @@ async function openThermalReceipt(request: RmaRequest, preview: Window | null, v
   const ticket = request.movideskTicketId || `${request.localCode} - aguardando Movidesk`
   const fields = variant === 'summary'
     ? [['Ticket', ticket], ['Data', printedDate], ['Técnico', request.technicianName], ['Equipamento', request.equipment]]
-    : [['Cliente', request.client], ['Código GIO', request.localCode], ['Ticket', ticket], ['Data', printedDate], ['Técnico', request.technicianName], ['Equipamento', request.equipment], ['Descrição', request.details]]
+    : [['Cliente', request.client], ['Código SIGA', request.localCode], ['Ticket', ticket], ['Data', printedDate], ['Técnico', request.technicianName], ['Equipamento', request.equipment], ['Descrição', request.details]]
   const measuring = new jsPDF({ unit: 'mm', format: [pageWidth, 180] })
   measuring.setFont('helvetica', 'normal'); measuring.setFontSize(8)
   const preparedFields = fields.map(([label, value]) => ({ label, lines: measuring.splitTextToSize(value || '—', contentWidth) as string[] }))
@@ -340,11 +340,14 @@ async function openThermalReceipt(request: RmaRequest, preview: Window | null, v
   const lineHeight = 3.4
   const valueHeight = (lines: string[]) => Math.max(4.8, lines.length * lineHeight + 1)
   const fieldsHeight = preparedFields.reduce((total, field) => total + labelHeight + valueHeight(field.lines), 0)
-  const logoWidth = 28
-  const logoHeight = logo ? (() => {
+  // Logo SIGA + Grupo Alert: ocupa no máximo a largura útil da bobina e 11 mm de altura, sem distorcer.
+  const logoSize = logo ? (() => {
     const properties = measuring.getImageProperties(logo)
-    return Math.min(13, logoWidth * properties.height / properties.width)
-  })() : 0
+    const scale = Math.min(contentWidth / properties.width, 11 / properties.height)
+    return { width: properties.width * scale, height: properties.height * scale }
+  })() : { width: 0, height: 0 }
+  const logoWidth = logoSize.width
+  const logoHeight = logoSize.height
   const logoBlockHeight = logo ? logoHeight + 3 : 0
   const pageHeight = variant === 'summary'
     ? Math.max(82, 6 + logoBlockHeight + fieldsHeight + 6)
@@ -372,7 +375,7 @@ async function openThermalReceipt(request: RmaRequest, preview: Window | null, v
     pdf.setDrawColor(35, 35, 35); pdf.setLineWidth(.35); pdf.roundedRect(safeLeft, y, contentWidth, 32, 2, 2)
     y += 36
     pdf.setFont('helvetica', 'normal'); pdf.setFontSize(5.5); pdf.setTextColor(90, 90, 90)
-    pdf.text(`GIO · ${request.localCode} · impresso em ${new Date().toLocaleString('pt-BR')}`, contentCenter, y, { align: 'center', maxWidth: contentWidth })
+    pdf.text(`SIGA · ${request.localCode} · impresso em ${new Date().toLocaleString('pt-BR')}`, contentCenter, y, { align: 'center', maxWidth: contentWidth })
   }
 
   const blobUrl = URL.createObjectURL(pdf.output('blob'))

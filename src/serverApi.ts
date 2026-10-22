@@ -36,7 +36,7 @@ async function servedByGioServer() {
 
 async function discoverApiBase() {
   if (localServerPorts.has(window.location.port) && ['localhost', '127.0.0.1'].includes(window.location.hostname)) return window.location.origin
-  // Quando a página é servida pelo próprio servidor GIO (ex.: http://IP-DO-SERVIDOR:4173), usa o mesmo endereço.
+  // Quando a página é servida pelo próprio servidor SIGA (ex.: http://IP-DO-SERVIDOR:4173), usa o mesmo endereço.
   if (window.location.protocol.startsWith('http') && await servedByGioServer()) return window.location.origin
   const configuration = await runtimeConfiguration()
   return trimBase(String(configuration.apiBaseUrl || ''))
@@ -77,16 +77,16 @@ function validToken() {
 
 async function responseMessage(response: Response) {
   const body = await response.json().catch(() => ({})) as { error?: string }
-  return body.error || `Não foi possível acessar o servidor GIO (${response.status}).`
+  return body.error || `Não foi possível acessar o servidor SIGA (${response.status}).`
 }
 
 export async function serverApiFetch(path: string, init: RequestInit = {}, authenticated = true) {
   const base = await apiBaseUrl()
-  if (!base) throw new Error('O endereço do servidor GIO não está configurado.')
+  if (!base) throw new Error('O endereço do servidor SIGA não está configurado.')
   const headers = new Headers(init.headers)
   if (authenticated) {
     const token = validToken()
-    if (!token) throw new Error('Sua sessão com o servidor expirou. Entre novamente na GIO.')
+    if (!token) throw new Error('Sua sessão com o servidor expirou. Entre novamente no SIGA.')
     headers.set('Authorization', `Bearer ${token}`)
   }
   return fetch(`${base}${path.startsWith('/') ? path : `/${path}`}`, { ...init, headers })

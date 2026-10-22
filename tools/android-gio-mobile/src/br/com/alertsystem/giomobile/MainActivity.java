@@ -37,7 +37,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * GIO Mobile: abre o site do GIO Mobile em tela cheia, com câmera, GPS e endereço configurável.
+ * SIGA Mobile: abre o site do SIGA Mobile em tela cheia, com câmera, GPS e endereço configurável.
  * O endereço padrão pode ser trocado no próprio app (botão "Alterar endereço" na tela de erro).
  */
 public class MainActivity extends Activity {
@@ -69,8 +69,8 @@ public class MainActivity extends Activity {
         } catch (Throwable error) {
             // Acontece quando o "Android System WebView" está desativado, desinstalado ou atualizando.
             new AlertDialog.Builder(this)
-                .setTitle("Não foi possível abrir o GIO Mobile")
-                .setMessage("Este celular está sem o componente \"Android System WebView\" ativo.\n\nAbra a Play Store, procure por \"Android System WebView\" e toque em Atualizar/Ativar. Depois abra o GIO Mobile de novo.\n\nDetalhe: " + error.getClass().getSimpleName())
+                .setTitle("Não foi possível abrir o SIGA Mobile")
+                .setMessage("Este celular está sem o componente \"Android System WebView\" ativo.\n\nAbra a Play Store, procure por \"Android System WebView\" e toque em Atualizar/Ativar. Depois abra o SIGA Mobile de novo.\n\nDetalhe: " + error.getClass().getSimpleName())
                 .setPositiveButton("Abrir Play Store", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface dialog, int which) { openExternal("market://details?id=com.google.android.webview"); finish(); }
                 })
@@ -104,7 +104,7 @@ public class MainActivity extends Activity {
             @Override
             public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long length) {
                 if (url != null && (url.startsWith("http://") || url.startsWith("https://"))) openExternal(url);
-                else Toast.makeText(MainActivity.this, "O documento fica salvo no GIO e pode ser baixado pelo computador.", Toast.LENGTH_LONG).show();
+                else Toast.makeText(MainActivity.this, "O documento fica salvo no SIGA e pode ser baixado pelo computador.", Toast.LENGTH_LONG).show();
             }
         });
 
@@ -136,7 +136,7 @@ public class MainActivity extends Activity {
         prefs.edit().remove("last_crash").apply();
         String shortText = crash.length() > 1500 ? crash.substring(0, 1500) : crash;
         new AlertDialog.Builder(this)
-            .setTitle("O GIO Mobile fechou da última vez")
+            .setTitle("O SIGA Mobile fechou da última vez")
             .setMessage("Envie uma foto desta tela para a TI:\n\n" + shortText)
             .setPositiveButton("OK", null)
             .show();
@@ -189,7 +189,7 @@ public class MainActivity extends Activity {
         input.setText(currentUrl());
         input.setSelectAllOnFocus(true);
         new AlertDialog.Builder(this)
-            .setTitle("Endereço do GIO Mobile")
+            .setTitle("Endereço do SIGA Mobile")
             .setMessage("Informe o endereço fornecido pela equipe de TI.\nNa rede da empresa: http://192.168.227.227:4173/mobile/")
             .setView(input)
             .setPositiveButton("Salvar", new DialogInterface.OnClickListener() {
@@ -221,7 +221,7 @@ public class MainActivity extends Activity {
             + "h1{font-size:21px;margin:12px 0 8px}p{color:#70757a;font-size:15px;line-height:1.45}small{color:#9aa0a5;word-break:break-all}"
             + "button{display:block;width:100%;min-height:52px;border:0;border-radius:14px;font-size:16px;font-weight:700;margin-top:12px}"
             + ".p{background:#f58200;color:#fff}.s{background:#eef0f1;color:#303336}.i{font-size:42px}</style></head><body><div class='c'>"
-            + "<div class='i'>📶</div><h1>Não foi possível abrir o GIO</h1><p>Verifique a internet do celular. Se o problema continuar, confirme o endereço com a TI.</p>"
+            + "<div class='i'>📶</div><h1>Não foi possível abrir o SIGA</h1><p>Verifique a internet do celular. Se o problema continuar, confirme o endereço com a TI.</p>"
             + "<small>" + currentUrl() + "<br>" + safe + "</small>"
             + "<button class='p' onclick='GIOApp.tentarNovamente()'>Tentar novamente</button>"
             + "<button class='s' onclick='GIOApp.alterarEndereco()'>Alterar endereço</button></div></body></html>";
@@ -261,7 +261,7 @@ public class MainActivity extends Activity {
         @Override
         public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
             if (request.isForMainFrame() && !showingError && response != null && response.getStatusCode() >= 400) {
-                showError("Erro " + response.getStatusCode() + ": o GIO Mobile não foi encontrado neste endereço.");
+                showError("Erro " + response.getStatusCode() + ": o SIGA Mobile não foi encontrado neste endereço.");
             }
         }
     }
@@ -297,7 +297,7 @@ public class MainActivity extends Activity {
             if (images && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                 try {
                     ContentValues values = new ContentValues();
-                    values.put(MediaStore.Images.Media.TITLE, "GIO " + System.currentTimeMillis());
+                    values.put(MediaStore.Images.Media.TITLE, "SIGA " + System.currentTimeMillis());
                     values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
                     cameraUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
                     if (cameraUri != null) {
@@ -358,7 +358,7 @@ public class MainActivity extends Activity {
         long now = System.currentTimeMillis();
         if (now - lastBack < 2000) { super.onBackPressed(); return; }
         lastBack = now;
-        Toast.makeText(this, "Toque de novo para sair do GIO Mobile", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Toque de novo para sair do SIGA Mobile", Toast.LENGTH_SHORT).show();
     }
 
     @Override

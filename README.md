@@ -1,4 +1,6 @@
-# GIO — Gestão Integrada de Operações
+# SIGA — Sistema Integrado de Gestão Alert
+
+> Antigo GIO. A marca (logos, ícones e manual) está em `public/brand/siga/` e no mídia kit SIGA.
 
 Aplicação web para gerenciamento das operações de campo, estoque, auditorias e manutenção/RMA.
 

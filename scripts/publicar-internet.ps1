@@ -83,12 +83,17 @@ if (-not $url) {
 
 # 3. Testa o túnel de ponta a ponta
 Write-Host '==> Testando o acesso pela internet...'
+# O endereço novo leva alguns segundos para existir no DNS. O Windows guarda a resposta
+# "não encontrado" em cache, então limpa o cache a cada tentativa. Se mesmo assim este
+# servidor não conseguir testar (DNS da rede), publica do mesmo jeito: o túnel já está registrado.
+Start-Sleep -Seconds 8
 $ok = $false
-for ($i = 1; $i -le 30 -and -not $ok; $i++) {
-  try { $h = Invoke-RestMethod "$url/api/health" -TimeoutSec 5; $ok = $h.application -eq 'GIO' } catch { Start-Sleep -Seconds 2 }
+for ($i = 1; $i -le 40 -and -not $ok; $i++) {
+  try { Clear-DnsClientCache -ErrorAction SilentlyContinue } catch { }
+  try { $h = Invoke-RestMethod "$url/api/health" -TimeoutSec 8; $ok = $h.application -eq 'GIO' } catch { Start-Sleep -Seconds 3 }
 }
-if (-not $ok) { throw "O túnel abriu, mas o GIO não respondeu por $url." }
-Write-Host 'OK - GIO acessível pela internet.'
+if ($ok) { Write-Host 'OK - GIO acessível pela internet.' }
+else { Write-Host "AVISO - não foi possível testar $url a partir deste servidor (DNS da rede). Publicando mesmo assim; teste o link em outro dispositivo." }
 
 # 4. Grava o endereço
 # Mantém os outros endereços (desktopUrl, mobileUrl, androidApkUrl) e troca só o da API.
@@ -100,7 +105,7 @@ function Montar-Config([string]$textoAtual) {
   $linhas = @(); foreach ($k in $config.Keys) { $linhas += ('  "{0}": "{1}"' -f $k, ([string]$config[$k]).Replace('\', '\\').Replace('"', '\"')) }
   return "{`n" + ($linhas -join ",`n") + "`n}`n"
 }
-$json = Montar-Config 
+$json = Montar-Config
 $utf8 = New-Object Text.UTF8Encoding($false)
 # (o arquivo da pasta de trabalho não é alterado, para não bloquear atualizações; vale o que está no GitHub)
 if (Test-Path (Split-Path $configDist)) { [IO.File]::WriteAllText($configDist, $json, $utf8) }

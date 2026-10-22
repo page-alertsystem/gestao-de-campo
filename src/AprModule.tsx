@@ -246,14 +246,14 @@ export async function createAprPdf(record: AprRecord, sheets: AprSheet[], signat
   let logo = ''
   try { logo = await fetch(brandAssets.pdf).then(response => response.blob()).then(blobToDataUrl) } catch { /* O título textual mantém o documento identificado. */ }
   const drawHeader = (subtitle: string) => {
-    if (logo) addContainedImage(pdf, logo, 15, 9, 39, 20)
-    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(18); pdf.setTextColor(44, 48, 50); pdf.text('APR Aprovada', 65, 19)
-    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(105, 111, 115); pdf.text(subtitle, 65, 26)
+    if (logo) addContainedImage(pdf, logo, 15, 11, 80, 13)
+    pdf.setFont('helvetica', 'bold'); pdf.setFontSize(18); pdf.setTextColor(44, 48, 50); pdf.text('APR Aprovada', 195, 19, { align: 'right' })
+    pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(105, 111, 115); pdf.text(subtitle, 195, 26, { align: 'right' })
     pdf.setDrawColor(245, 130, 0); pdf.setLineWidth(1); pdf.line(15, 36, 195, 36)
   }
   const addPage = (subtitle: string) => { pdf.addPage(); drawHeader(subtitle) }
 
-  drawHeader('GIO - Gestão Integrada de Operações')
+  drawHeader('SIGA — Sistema Integrado de Gestão Alert')
   let y = 50
   const writeField = (label: string, value: string) => {
     pdf.setFontSize(9); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(55, 59, 61); pdf.text(`${label}:`, 15, y)
@@ -266,7 +266,7 @@ export async function createAprPdf(record: AprRecord, sheets: AprSheet[], signat
   writeField('Cliente', record.client)
   writeField('Unidade', record.unit)
   writeField('Liberação', `${new Date(`${record.releaseDate}T12:00:00`).toLocaleDateString('pt-BR')} às ${record.releaseTime}`)
-  writeField('Criação no GIO', new Date(record.createdAt).toLocaleString('pt-BR'))
+  writeField('Criação no SIGA', new Date(record.createdAt).toLocaleString('pt-BR'))
   writeField('Criado por', record.createdByName)
   y += 3
   pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12); pdf.setTextColor(45, 49, 51); pdf.text('Descrição completa da atividade', 15, y); y += 8
@@ -299,7 +299,7 @@ export async function createAprPdf(record: AprRecord, sheets: AprSheet[], signat
   addContainedImage(pdf, signature, 30, 102, 150, 56)
   pdf.setDrawColor(110, 115, 117); pdf.line(30, 162, 180, 162)
   pdf.setFontSize(9); pdf.text(record.signedBy, 105, 168, { align: 'center' })
-  pdf.setFontSize(8); pdf.setTextColor(110, 115, 117); pdf.text('Assinatura registrada eletronicamente no GIO.', 105, 176, { align: 'center' })
+  pdf.setFontSize(8); pdf.setTextColor(110, 115, 117); pdf.text('Assinatura registrada eletronicamente no SIGA.', 105, 176, { align: 'center' })
 
   const totalPages = pdf.getNumberOfPages()
   for (let page = 1; page <= totalPages; page += 1) {

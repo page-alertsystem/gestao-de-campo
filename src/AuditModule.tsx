@@ -1,6 +1,7 @@
 import { ChangeEvent, PointerEvent as ReactPointerEvent, useRef, useState } from 'react'
 import { AlertTriangle, CalendarDays, Camera, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, FileDown, ListChecks, PenLine, ShieldCheck, UserCheck, Wrench, X } from 'lucide-react'
 import { jsPDF } from 'jspdf'
+import { fitLogo } from './pdfBrand'
 import { hasProfile } from './access'
 import type { AppData, AuditAnswer, AuditCategory, AuditItemResult, AuditRecord, InventoryItem } from './store'
 import { brandAssets } from './paths'
@@ -242,7 +243,7 @@ async function createAuditPdf(record: AuditRecord, responsibleSignature: string,
   let logo = ''
   try { logo = await fetch(brandAssets.pdf).then(response => response.blob()).then(blobToDataUrl) } catch { /* O título mantém o documento identificável. */ }
   const header = (title: string, subtitle: string) => {
-    if (logo) pdf.addImage(logo, 'PNG', 15, 10, 44, 14.7)
+    if (logo) fitLogo(pdf, logo, 15, 12, 100, 15)
     pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16); pdf.setTextColor(48, 51, 54); pdf.text(title, 15, 42)
     pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(112, 117, 122); pdf.text(subtitle, 15, 48)
     pdf.setDrawColor(245, 130, 0); pdf.setLineWidth(1); pdf.line(15, 53, 195, 53)
@@ -250,7 +251,7 @@ async function createAuditPdf(record: AuditRecord, responsibleSignature: string,
 
   const approved = record.results.filter(result => result.approved).length
   const resultStatus = auditSummaryStatus(record.category, record.results)
-  header(`Relatório de Auditoria de ${record.category}`, 'GIO — Gestão Integrada de Operações')
+  header(`Relatório de Auditoria de ${record.category}`, 'SIGA — Sistema Integrado de Gestão Alert')
   const summary = [
     ['Auditor', record.auditorName], ['Pessoa auditada', record.auditedName],
     ['Data agendada', record.scheduledDate ? new Date(`${record.scheduledDate}T12:00:00`).toLocaleDateString('pt-BR') : 'Não registrado'],

@@ -1,6 +1,6 @@
 // Cache de arquivos do site para abrir mais rápido e sem internet.
 // Nunca guarda respostas da API (dados e PDFs ficam só no servidor).
-const CACHE = 'gio-v2'
+const CACHE = 'siga-v3'
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (event) => event.waitUntil((async () => {
   for (const key of await caches.keys()) if (key !== CACHE) await caches.delete(key)

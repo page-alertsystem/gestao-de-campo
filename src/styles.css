@@ -111,7 +111,7 @@
 /* Com mais menus, a navegação móvel permanece utilizável por rolagem horizontal. */
 @media(max-width:800px){.mobile-nav{display:flex;overflow-x:auto;overflow-y:hidden;justify-content:flex-start}.mobile-nav button{flex:0 0 68px;min-width:68px;position:relative}.mobile-nav::-webkit-scrollbar{display:none}}
 
-/* ===================== GIO Mobile ===================== */
+/* ===================== SIGA Mobile ===================== */
 .switch-version{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:14px;padding:12px;border-radius:12px;background:#fff4e8;color:var(--brand-dark);font-weight:700;text-decoration:none;font-size:14px}
 .switch-version.subtle{background:transparent;color:var(--muted);font-weight:600;font-size:13px}
 .login-page.mobile-variant{grid-template-columns:1fr}.login-page.mobile-variant .login-message{display:none}.login-page.mobile-variant .login-panel{padding:28px 20px}.login-page.mobile-variant .mobile-login-brand{display:flex;align-items:center;gap:10px;margin-bottom:20px}.login-page.mobile-variant .mobile-login-brand b{font-size:24px}
@@ -154,3 +154,36 @@
 /* modais e formulários em tela cheia no celular */
 .m-shell .quick-modal{border-radius:20px 20px 0 0;width:100%;max-width:none;margin-top:auto}
 .m-shell .modal-actions button{min-height:52px}
+/* ===================== Marca SIGA ===================== */
+/* As imagens nunca passam da largura disponível e mantêm a proporção do mídia kit. */
+.siga-logo{display:block;height:auto;max-width:100%;aspect-ratio:666/221;object-fit:contain}
+.siga-tag{display:inline-flex;align-items:center;background:var(--brand);color:#fff;font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;padding:4px 9px;border-radius:999px;line-height:1;flex:none}
+.sidebar{overflow-y:auto}
+.brand-block.siga-brand{display:block;padding:4px 8px 26px}
+.siga-brand .siga-logo{width:100%;max-width:196px}
+.sidebar-company{display:flex;justify-content:center;margin-top:auto;padding:18px 8px 6px}
+.sidebar-company img{display:block;width:100px;max-width:60%;height:auto;aspect-ratio:493/165;object-fit:contain;opacity:.9}
+.sidebar-company+.sidebar-foot{margin-top:0}
+.login-brand{margin-bottom:56px;position:relative;z-index:1}
+.login-brand .siga-logo{width:clamp(220px,26vw,340px)}
+.login-company{display:flex;align-items:center;gap:12px;margin-top:46px;position:relative;z-index:1;color:#d1d3d4;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.14em}
+.login-company img{display:block;width:118px;max-width:40vw;height:auto;aspect-ratio:493/165;object-fit:contain}
+.login-page .mobile-login-brand{align-items:center;gap:10px;flex-wrap:wrap}
+.login-page .mobile-login-brand .siga-logo{width:min(230px,72vw)}
+.password-logo.siga-logo{width:min(230px,80%);aspect-ratio:666/221}
+.loading-page img.siga-logo{width:min(240px,70vw);aspect-ratio:666/221}
+.m-brand{min-width:0;gap:8px}
+.m-brand img{display:block;height:26px;width:auto;max-width:42vw;aspect-ratio:474/148;object-fit:contain}
+.m-brand .siga-tag{font-size:9px;padding:3px 7px}
+.m-sheet-brand{display:flex;align-items:center;justify-content:center;gap:18px;margin-top:8px;padding-top:14px;border-top:1px solid var(--line)}
+.m-sheet-brand img{display:block;height:30px;width:auto;max-width:44%;object-fit:contain}
+.m-sheet-brand img:first-child{aspect-ratio:474/148;height:26px}
+.m-sheet-brand img:last-child{aspect-ratio:493/165}
+@media(max-width:360px){.m-brand img{height:22px}.login-brand .siga-logo{width:200px}}
+.login-page .mobile-login-brand span.siga-tag{width:auto;height:auto;display:inline-flex;place-items:normal;font-family:inherit;font-size:10px;font-weight:800;border-radius:999px;box-shadow:none;padding:5px 10px}
+/* Login: conteúdo original; "Uma solução Grupo Alert" pequeno, centralizado, no rodapé */
+.login-page .login-message{padding-bottom:28px}
+.login-page .login-brand{margin-top:0}
+.login-page .login-message{padding-top:clamp(40px,7vh,80px)}
+.login-page .login-company{margin-top:auto;padding-top:36px;align-self:center;justify-content:center;gap:10px;font-size:9px}
+.login-page .login-company img{width:88px}

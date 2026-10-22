@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf'
+import { fitLogo } from './pdfBrand'
 import { brandAssets } from './paths'
 import type { SystemPreventiveCapacity, SystemPreventiveRecord } from './store'
 
@@ -88,12 +89,12 @@ export async function createSystemPreventivePdf(record: SystemPreventiveRecord) 
   }
 
   section('IDENTIFICAÇÃO DO RELATÓRIO')
-  fieldPair('Código GIO', record.code, 'Tipo de equipamento', record.assetType)
+  fieldPair('Código SIGA', record.code, 'Tipo de equipamento', record.assetType)
   fieldPair('Cliente', record.client, 'Data da preventiva', formatDate(record.serviceDate))
   fieldPair('Equipamento / hostname', record.assetName, 'Modelo', record.model)
   fieldPair('Serial / Service Tag', record.serialNumber, 'Endereço IP', record.ipAddress)
   fieldPair('Função', record.assetFunction, 'Responsável pelo registro', record.createdByName)
-  field('Registrado no GIO', formatDateTime(record.createdAt))
+  field('Registrado no SIGA', formatDateTime(record.createdAt))
 
   section('UTILIZAÇÃO E SISTEMA')
   fieldPair('Uso de CPU', percent(record.cpuUsagePercent), 'Uso de memória RAM', percent(record.memoryUsagePercent))
@@ -164,17 +165,17 @@ export async function createSystemPreventivePdf(record: SystemPreventiveRecord) 
     pdf.setPage(page)
     pdf.setDrawColor(231, 116, 31); pdf.line(15, 286, 195, 286)
     pdf.setTextColor(112, 119, 115); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(7)
-    pdf.text(`GIO · ${record.code} · ${record.client}`, 15, 291)
+    pdf.text(`SIGA · ${record.code} · ${record.client}`, 15, 291)
     pdf.text(`Página ${page} de ${pages}`, 195, 291, { align: 'right' })
   }
   return pdf
 }
 
 function addHeader(pdf: jsPDF, logo: string) {
-  if (logo) pdf.addImage(logo, 'PNG', 15, 8, 42, 14.1)
-  pdf.setTextColor(23, 54, 38); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(16)
+  if (logo) fitLogo(pdf, logo, 15, 10, 66, 12)
+  pdf.setTextColor(66, 66, 66); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(13)
   pdf.text('RELATÓRIO DE PREVENTIVA SISTÊMICA', 195, 16, { align: 'right' })
-  pdf.setTextColor(231, 116, 31); pdf.setFontSize(8); pdf.text('GESTÃO INTEGRADA DE OPERAÇÕES', 195, 22, { align: 'right' })
+  pdf.setTextColor(231, 116, 31); pdf.setFontSize(8); pdf.text('SISTEMA INTEGRADO DE GESTÃO ALERT', 195, 22, { align: 'right' })
   pdf.setDrawColor(231, 116, 31); pdf.setLineWidth(.6); pdf.line(15, 32, 195, 32)
   return 39
 }

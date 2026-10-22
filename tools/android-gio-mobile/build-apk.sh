@@ -1,5 +1,5 @@
 #!/bin/bash
-# Gera o GIO Mobile .apk (Linux: apt install android-sdk-platform-23 aapt apksigner zipalign dalvik-exchange default-jdk)
+# Gera o SIGA Mobile .apk (Linux: apt install android-sdk-platform-23 aapt apksigner zipalign dalvik-exchange default-jdk)
 set -e
 cd "$(dirname "$0")"
 J=/usr/lib/android-sdk/platforms/android-23/android.jar

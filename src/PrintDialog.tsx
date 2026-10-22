@@ -11,7 +11,7 @@ export function PrintDialog({ document, thermal = true, onClose }: { document: P
   const generate = async (format: PrintFormat) => {
     if (busy) return
     const preview = window.open('', '_blank')
-    if (preview) { preview.opener = null; preview.document.title = 'Preparando impressão'; preview.document.body.textContent = 'Preparando o documento do GIO…' }
+    if (preview) { preview.opener = null; preview.document.title = 'Preparando impressão'; preview.document.body.textContent = 'Preparando o documento do SIGA…' }
     setBusy(true); setError('')
     try {
       const response = await fetch(brandAssets.pdf)

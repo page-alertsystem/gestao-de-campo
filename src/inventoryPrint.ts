@@ -33,7 +33,7 @@ export function inventoryPrintDocument(data: AppData, title: string, items: Inve
 
 export function orderPrintDocument(request: StockRequest): PrintDocument {
   return {
-    title: `Pedido ${request.code}`, subtitle: 'GIO - Separação e retirada de materiais', fileName: `Pedido ${request.code}`,
+    title: `Pedido ${request.code}`, subtitle: 'SIGA - Separação e retirada de materiais', fileName: `Pedido ${request.code}`,
     blocks: [
       { title: 'Dados da retirada', fields: [['Quem vai retirar', request.assignedPersonName || request.technician], ['Data da retirada prevista', dateOnly(request.expectedDate)], ['Solicitante', request.requester], ['Cliente', request.client || 'Sem cliente'], ['Situação do pedido', request.status], ['Observação', request.generalNotes || 'Sem observações']] },
       ...request.requestedItems.map((item, index): PrintBlock => {
@@ -69,7 +69,7 @@ export function buildListPdf(document: PrintDocument, format: PrintFormat, logo:
     y = 12
     if (logo) {
       const properties = pdf.getImageProperties(logo)
-      const scale = Math.min(38 / properties.width, 19 / properties.height)
+      const scale = Math.min(90 / properties.width, 14 / properties.height)
       const logoWidth = properties.width * scale, logoHeight = properties.height * scale
       pdf.addImage(logo, 'PNG', margin, y, logoWidth, logoHeight)
       y += logoHeight + 7
@@ -107,7 +107,7 @@ export function buildListPdf(document: PrintDocument, format: PrintFormat, logo:
 function buildThermalListPdf(document: PrintDocument, logo: string) {
   const measure = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [80, 82] })
   const properties = logo ? measure.getImageProperties(logo) : null
-  const scale = properties ? Math.min(28 / properties.width, 13 / properties.height) : 0
+  const scale = properties ? Math.min(62 / properties.width, 11 / properties.height) : 0
   const logoWidth = properties ? properties.width * scale : 0
   const logoHeight = properties ? properties.height * scale : 0
   const startY = 6 + (logo ? logoHeight + 4 : 0)

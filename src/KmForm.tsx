@@ -1,6 +1,7 @@
 import { FormEvent, PointerEvent, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Camera, CarFront, ChevronRight, Gauge, MapPin, PenLine, Plus, Trash2, X } from 'lucide-react'
 import { jsPDF } from 'jspdf'
+import { fitLogo } from './pdfBrand'
 import type { KmRecord, Vehicle } from './store'
 import { brandAssets } from './paths'
 
@@ -174,7 +175,7 @@ async function createVehiclePdf({ record, vehicle, signature, vehicleImages, dam
   const code = `TROCA-${record.vehicle}-${new Date(record.createdAt).getTime()}`
   try {
     const logo = await fetch(brandAssets.pdf).then(response => response.blob()).then(blobToDataUrl)
-    pdf.addImage(logo, 'PNG', 15, 12, 48, 16.1)
+    fitLogo(pdf, logo, 15, 14, 100, 15)
   } catch { /* O título textual mantém o documento identificável. */ }
   pdf.setTextColor(48, 51, 54)
   pdf.setFont('helvetica', 'bold')
@@ -182,7 +183,7 @@ async function createVehiclePdf({ record, vehicle, signature, vehicleImages, dam
   pdf.text('Relatório de Troca de Condutor', 15, 46)
   pdf.setFontSize(9)
   pdf.setTextColor(112, 117, 122)
-  pdf.text(`GIO — Gestão Integrada de Operações  |  ${code}`, 15, 53)
+  pdf.text(`SIGA — Sistema Integrado de Gestão Alert  |  ${code}`, 15, 53)
   pdf.setDrawColor(245, 130, 0)
   pdf.setLineWidth(1.2)
   pdf.line(15, 58, 195, 58)
@@ -208,7 +209,7 @@ async function createVehiclePdf({ record, vehicle, signature, vehicleImages, dam
   pdf.addImage(signature, 'PNG', 15, 177, 90, 32)
   pdf.setDrawColor(120, 124, 126); pdf.line(15, 211, 108, 211)
   pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8); pdf.setTextColor(112, 117, 122)
-  pdf.text('Documento gerado no celular e arquivado no GIO para consulta.', 15, 224)
+  pdf.text('Documento gerado no celular e arquivado no SIGA para consulta.', 15, 224)
 
   for (let index = 0; index < damages.length; index++) {
     const damage = damages[index]

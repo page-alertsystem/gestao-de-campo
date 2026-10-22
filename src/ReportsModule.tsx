@@ -221,7 +221,7 @@ const reports: ReportDefinition[] = [
   {
     id: 'rma', label: 'RMA', icon: Wrench,
     columns: [
-      ['ticket', 'Ticket Movidesk'], ['codigo', 'Código GIO'], ['cliente', 'Cliente'], ['tecnico', 'Técnico'],
+      ['ticket', 'Ticket Movidesk'], ['codigo', 'Código SIGA'], ['cliente', 'Cliente'], ['tecnico', 'Técnico'],
       ['equipamento', 'Equipamento'], ['retirada', 'Data da retirada'], ['registro', 'Data do registro'], ['status', 'Status'],
     ].map(([key, label]) => ({ key, label })),
     rows: data => data.rmaRequests.map(item => {
@@ -244,7 +244,7 @@ const reports: ReportDefinition[] = [
   {
     id: 'levantamentos', label: 'Levantamentos', icon: FileBarChart,
     columns: [
-      ['ticket', 'Ticket Movidesk'], ['codigo', 'Código GIO'], ['cliente', 'Cliente'], ['solicitante', 'Solicitante'],
+      ['ticket', 'Ticket Movidesk'], ['codigo', 'Código SIGA'], ['cliente', 'Cliente'], ['solicitante', 'Solicitante'],
       ['area', 'Área'], ['inicio', 'Prazo inicial'], ['fim', 'Prazo final'], ['registro', 'Data do registro'], ['status', 'Status'],
     ].map(([key, label]) => ({ key, label })),
     rows: data => data.surveyRequests.map(item => {
@@ -365,7 +365,7 @@ function buildExcelWorkbook(sheets: { report: ReportDefinition; rows: ReportRow[
     const widths = columns.map(column => `<Column ss:AutoFitWidth="0" ss:Width="${Math.min(220, Math.max(75, column.label.length * 7 + 25))}"/>`).join('')
     return `<Worksheet ss:Name="${xmlEscape(report.label.slice(0, 31))}"><Table>${widths}${header}${body}</Table><WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><FreezePanes/><FrozenNoSplit/><SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane><ProtectObjects>False</ProtectObjects><ProtectScenarios>False</ProtectScenarios></WorksheetOptions><AutoFilter x:Range="R1C1:R${Math.max(1, rows.length + 1)}C${columns.length}" xmlns="urn:schemas-microsoft-com:office:excel"/></Worksheet>`
   }).join('')
-  return `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><DocumentProperties xmlns="urn:schemas-microsoft-com:office:office"><Author>GIO - Gestão Integrada de Operações</Author><Created>${new Date().toISOString()}</Created></DocumentProperties><Styles><Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="10"/><Borders/><Interior/><NumberFormat/><Protection/></Style><Style ss:ID="Header"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#F58200" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D56E00"/></Borders></Style></Styles>${worksheets}</Workbook>`
+  return `<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><DocumentProperties xmlns="urn:schemas-microsoft-com:office:office"><Author>SIGA - Sistema Integrado de Gestão Alert</Author><Created>${new Date().toISOString()}</Created></DocumentProperties><Styles><Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/><Font ss:FontName="Calibri" ss:Size="10"/><Borders/><Interior/><NumberFormat/><Protection/></Style><Style ss:ID="Header"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Font ss:FontName="Calibri" ss:Size="10" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#F58200" ss:Pattern="Solid"/><Borders><Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#D56E00"/></Borders></Style></Styles>${worksheets}</Workbook>`
 }
 
 function excelCell(value: CellValue) {

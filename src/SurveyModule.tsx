@@ -201,7 +201,7 @@ export function SurveyPage({ data, onChange }: { data: AppData; onChange: (data:
         nextData = { ...nextData, surveyRequests: nextData.surveyRequests.map(item => item.id === request.id ? sent : item) }
         onChange(nextData, sent.integrationError ? `Ticket ${ticketId} criado. A foto ficou pendente.` : `Levantamento enviado no ticket ${ticketId}.`)
       } catch {
-        const failed = { ...request, integrationError: 'Não foi possível enviar agora. A solicitação permanece salva no GIO.' }
+        const failed = { ...request, integrationError: 'Não foi possível enviar agora. A solicitação permanece salva no SIGA.' }
         nextData = { ...nextData, surveyRequests: nextData.surveyRequests.map(item => item.id === request.id ? failed : item) }
         onChange(nextData, `${request.localCode} ficou pendente de envio ao Movidesk.`)
       }
@@ -234,7 +234,7 @@ export function SurveyPage({ data, onChange }: { data: AppData; onChange: (data:
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Falha desconhecida.'
       const failed = { ...request, integrationError: `Não foi possível enviar: ${detail}` }
-      onChange({ ...data, surveyRequests: data.surveyRequests.map(item => item.id === request.id ? failed : item) }, `${request.localCode} continua salvo no GIO.`)
+      onChange({ ...data, surveyRequests: data.surveyRequests.map(item => item.id === request.id ? failed : item) }, `${request.localCode} continua salvo no SIGA.`)
     } finally {
       setBusyId('')
     }

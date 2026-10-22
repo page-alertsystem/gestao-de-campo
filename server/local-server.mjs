@@ -47,7 +47,7 @@ const mimeTypes = new Map([
 ])
 
 if (!existsSync(join(distDirectory, 'index.html'))) {
-  console.error('A pasta dist não foi encontrada. Compile o GIO antes de iniciar o servidor.')
+  console.error('A pasta dist não foi encontrada. Compile o SIGA antes de iniciar o servidor.')
   process.exit(1)
 }
 
@@ -63,13 +63,13 @@ const server = createServer(async (request, response) => {
       return sendJson(response, 400, { error: 'Endereço inválido.' })
     }
     if (request.method === 'OPTIONS') return handleOptions(request, response)
-    if (!originAllowed(request)) return sendJson(response, 403, { error: 'Origem não autorizada para acessar o servidor GIO.' })
+    if (!originAllowed(request)) return sendJson(response, 403, { error: 'Origem não autorizada para acessar o servidor SIGA.' })
     if (url.pathname === '/api/health' && request.method === 'GET') return await sendHealth(response)
     if (url.pathname === '/api/setup/state' && request.method === 'POST') return await setupCentralState(request, response)
     if (url.pathname === '/api/auth/login' && request.method === 'POST') return await login(request, response)
 
     const session = url.pathname.startsWith('/api/') ? await authenticateRequest(request) : null
-    if (url.pathname.startsWith('/api/') && !session) return sendJson(response, 401, { error: 'Sessão inválida ou expirada. Entre novamente na GIO.' })
+    if (url.pathname.startsWith('/api/') && !session) return sendJson(response, 401, { error: 'Sessão inválida ou expirada. Entre novamente no SIGA.' })
     if (url.pathname === '/api/auth/logout' && request.method === 'POST') {
       await repository.deleteSession(session.token)
       return sendJson(response, 200, { ok: true })
@@ -101,7 +101,7 @@ const server = createServer(async (request, response) => {
 })
 
 server.listen(port, host, async () => {
-  console.log(`GIO disponível em http://localhost:${port}`)
+  console.log(`SIGA disponível em http://localhost:${port}`)
   console.log(`Rede local: http://IP-DESTA-MAQUINA:${port}`)
   console.log('Banco de dados: PostgreSQL conectado')
   console.log(`Movidesk: ${movideskConfiguration().configured ? 'configurado' : 'aguardando token e usuário de integração'}`)
@@ -201,7 +201,7 @@ function validAppState(data) {
 
 async function getCentralState(response, session) {
   const state = await repository.loadState(session.accountId)
-  if (!state) return sendJson(response, 401, { error: 'Sessão inválida ou expirada. Entre novamente na GIO.' })
+  if (!state) return sendJson(response, 401, { error: 'Sessão inválida ou expirada. Entre novamente no SIGA.' })
   return sendJson(response, 200, { ...state, updatedAt: new Date().toISOString() })
 }
 
@@ -658,8 +658,8 @@ function allowMovideskRequest() {
 
 function buildDescription(body) {
   return [
-    'SOLICITAÇÃO DE RMA PELO GIO',
-    `Código GIO: ${body.localCode}`,
+    'SOLICITAÇÃO DE RMA PELO SIGA',
+    `Código SIGA: ${body.localCode}`,
     `Cliente informado: ${body.client}`,
     `Equipamento: ${body.equipment}`,
     `Data da retirada: ${formatDate(body.withdrawalDate)}`,
@@ -668,34 +668,34 @@ function buildDescription(body) {
     `Categoria: ${body.category || 'RMA'}`,
     `Urgência: ${body.urgency || 'Normal'}`,
     `Descrição do problema: ${body.details}`,
-    `Registrado no GIO em ${new Date().toLocaleString('pt-BR')}.`,
+    `Registrado no SIGA em ${new Date().toLocaleString('pt-BR')}.`,
   ].map(line => escapeHtml(line).replace(/\r?\n/g, '<br>')).join('<br>')
 }
 
 function buildSurveyDescription(body) {
   return [
-    'SOLICITAÇÃO DE LEVANTAMENTO PELO GIO',
-    `Código GIO: ${body.localCode}`,
+    'SOLICITAÇÃO DE LEVANTAMENTO PELO SIGA',
+    `Código SIGA: ${body.localCode}`,
     `Cliente informado: ${body.client}`,
     `Período solicitado: ${formatDate(body.startDate)} a ${formatDate(body.endDate)}`,
     `Área do levantamento: ${body.area}`,
     `Solicitante: ${body.requestedBy}`,
     `Detalhes da atividade: ${body.details}`,
-    `Registrado no GIO em ${new Date().toLocaleString('pt-BR')}.`,
+    `Registrado no SIGA em ${new Date().toLocaleString('pt-BR')}.`,
   ].map(line => escapeHtml(line).replace(/\r?\n/g, '<br>')).join('<br>')
 }
 
 function buildReturnCallDescription(body) {
   return [
-    'CHAMADO INTERNO DE RETORNO PELO GIO',
-    `Código GIO: ${body.localCode}`,
+    'CHAMADO INTERNO DE RETORNO PELO SIGA',
+    `Código SIGA: ${body.localCode}`,
     `Cliente informado: ${body.client}`,
     `Data informada: ${formatDate(body.date)}`,
     `Categoria: ${body.category}`,
     `Urgência: ${body.urgency}`,
     `Solicitante: ${body.openedBy}`,
     `Descrição: ${body.description}`,
-    `Registrado no GIO em ${new Date().toLocaleString('pt-BR')}.`,
+    `Registrado no SIGA em ${new Date().toLocaleString('pt-BR')}.`,
   ].map(line => escapeHtml(line).replace(/\r?\n/g, '<br>')).join('<br>')
 }
 
@@ -780,7 +780,7 @@ async function serveStatic(pathname, response) {
   try {
     if ((await stat(filePath)).isDirectory()) filePath = join(filePath, 'index.html')
   } catch {
-    // Rotas desconhecidas: /mobile/* abre o GIO Mobile; o resto abre o GIO completo.
+    // Rotas desconhecidas: /mobile/* abre o SIGA Mobile; o resto abre o SIGA completo.
     const mobileIndex = join(distDirectory, 'mobile', 'index.html')
     filePath = (relativePath === 'mobile' || relativePath.startsWith(`mobile${sep}`)) && existsSync(mobileIndex) ? mobileIndex : join(distDirectory, 'index.html')
   }

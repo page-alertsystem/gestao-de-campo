@@ -264,7 +264,7 @@ export function ReturnCallPage({ data, onChange }: { data: AppData; onChange: (d
     </section>
 
     <section className="surface table-surface damaged-equipment-table">
-      <div className="table-toolbar"><div><p className="eyebrow">Histórico</p><h3>Chamados de retorno</h3></div><small className="table-muted">Registros criados pelo GIO</small></div>
+      <div className="table-toolbar"><div><p className="eyebrow">Histórico</p><h3>Chamados de retorno</h3></div><small className="table-muted">Registros criados pelo SIGA</small></div>
       <div className="responsive-table"><table><thead><tr><th>Ticket Movidesk</th><th>Cliente</th><th>Data</th><th>Categoria</th><th>Urgência</th><th>Solicitante</th><th>Status</th><th>Ação</th></tr></thead><tbody>{requests.length ? requests.map(item => <tr key={item.id}>
         <td><b>{item.movideskTicketId || 'Aguardando'}</b><small className="table-subtitle">{item.localCode}</small></td><td>{item.client}</td><td>{formatDate(item.date)}</td><td>{item.category}</td><td>{item.urgency}</td><td>{item.openedByName}</td>
         <td><span className={`status ${item.integrationError ? 'warning' : 'success'}`}>{item.integrationError ? (item.movideskTicketId ? 'Foto pendente' : 'Envio pendente') : item.status}</span>{item.integrationError && <small className="rma-table-warning">{item.integrationError}</small>}</td>
