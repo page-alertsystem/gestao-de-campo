@@ -1,6 +1,6 @@
 {
-  "apiBaseUrl": "https://sole-batch-explore-hart.trycloudflare.com",
-  "desktopUrl": "",
-  "mobileUrl": "",
-  "androidApkUrl": ""
+  "apiBaseUrl": "https://siga.alertsystem.com.br",
+  "desktopUrl": "https://siga.alertsystem.com.br/",
+  "mobileUrl": "https://siga.alertsystem.com.br/mobile/",
+  "androidApkUrl": "https://siga.alertsystem.com.br/mobile/siga-mobile.apk"
 }
