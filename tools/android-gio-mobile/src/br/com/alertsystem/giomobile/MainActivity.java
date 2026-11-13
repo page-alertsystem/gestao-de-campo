@@ -42,7 +42,7 @@ import java.util.List;
  */
 public class MainActivity extends Activity {
 
-    static final String DEFAULT_URL = "https://page-alertsystem.github.io/gestao-de-campo/mobile/";
+    static final String DEFAULT_URL = "https://siga.alertsystem.com.br/mobile/";
     static final String PREFS = "gio_mobile";
     static final String KEY_URL = "url";
     static final int REQUEST_FILE = 10;
@@ -150,7 +150,9 @@ public class MainActivity extends Activity {
     String currentUrl() {
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         String saved = prefs.getString(KEY_URL, "");
-        return saved == null || saved.trim().isEmpty() ? DEFAULT_URL : saved.trim();
+        // Endereço antigo (GitHub Pages / túnel provisório) passa a usar o endereço fixo do SIGA.
+        if (saved == null || saved.trim().isEmpty() || saved.contains("page-alertsystem.github.io") || saved.contains("trycloudflare.com")) return DEFAULT_URL;
+        return saved.trim();
     }
 
     void saveUrl(String url) {

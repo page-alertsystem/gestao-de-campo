@@ -32,6 +32,14 @@ function Executar([string]$exe, [string[]]$argumentos) {
 }
 
 $porta = Porta
+
+# Com endereço fixo (scripts\usar-dominio-siga.ps1) o túnel provisório não é mais usado.
+$marcaDominio = Join-Path $projeto '.siga-dominio'
+if (Test-Path $marcaDominio) {
+  $dominioFixo = (Get-Content $marcaDominio -Raw).Trim()
+  Write-Host "O SIGA usa o endereço fixo https://$dominioFixo - não é preciso publicar por túnel." -ForegroundColor Green
+  return
+}
 try { $null = Invoke-RestMethod "http://127.0.0.1:$porta/api/health" -TimeoutSec 5 }
 catch { throw "O GIO não está respondendo em http://127.0.0.1:$porta. Ligue o GIO antes de publicar." }
 
@@ -51,10 +59,24 @@ if (Test-Path $pidFile) {
   $processo = Get-Process -Id $pidAntigo -ErrorAction SilentlyContinue
   if ($processo -and $processo.ProcessName -eq 'cloudflared' -and (Test-Path $logFile)) {
     $url = (Select-String -Path $logFile -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' -AllMatches | Select-Object -Last 1).Matches.Value | Select-Object -Last 1
-    if ($url) { Write-Host "Túnel já estava no ar: $url" }
+    if ($url) {
+      # O processo pode estar vivo com um túnel que a Cloudflare já apagou (queda de rede longa).
+      # Nesse caso o log mostra "Tunnel not found" e o endereço não responde: abre um túnel novo.
+      $ultimas = (Get-Content $logFile -Tail 40 -ErrorAction SilentlyContinue) -join "`n"
+      $morto = $ultimas -match 'Tunnel not found|Unauthorized'
+      if (-not $morto) {
+        $vivo = $false
+        for ($t = 1; $t -le 3 -and -not $vivo; $t++) {
+          try { $h = Invoke-RestMethod "$url/api/health" -TimeoutSec 8; $vivo = $h.application -eq 'GIO' } catch { Start-Sleep -Seconds 2 }
+        }
+        $morto = -not $vivo
+      }
+      if ($morto) { Write-Host "O túnel antigo ($url) não está mais válido. Abrindo um novo..." -ForegroundColor Yellow; $url = $null }
+      else { Write-Host "Túnel já estava no ar: $url" }
+    }
   }
   if (-not $url) {
-    if ($processo -and $processo.ProcessName -eq 'cloudflared') { Stop-Process -Id $pidAntigo -Force }
+    if ($processo -and $processo.ProcessName -eq 'cloudflared') { Stop-Process -Id $pidAntigo -Force; Start-Sleep -Seconds 2 }
     Remove-Item $pidFile -Force
   }
 }
@@ -121,7 +143,7 @@ try {
   $destino = Join-Path $temp 'public\server-config.json'
   $atual = if (Test-Path $destino) { [IO.File]::ReadAllText($destino) } else { '' }
   $json = Montar-Config $atual
-  if ($atual.Trim() -eq $json.Trim()) {
+  if (($atual -replace "`r", '').Trim() -eq ($json -replace "`r", '').Trim()) {
     Write-Host 'O GitHub já tem esse endereço.'
   } else {
     New-Item -ItemType Directory -Path (Split-Path $destino) -Force | Out-Null

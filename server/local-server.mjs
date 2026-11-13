@@ -116,9 +116,11 @@ process.on('SIGTERM', shutdown)
 function originAllowed(request) {
   const origin = String(request.headers.origin || '').trim()
   if (!origin || allowedOrigins.has(origin)) return true
-  // Mesma origem: a página foi aberta pelo próprio servidor (ex.: http://IP-DO-SERVIDOR:4173).
+  // Mesma origem: a página foi aberta pelo próprio servidor (ex.: http://IP-DO-SERVIDOR:4173)
+  // ou pelo endereço público com HTTPS (ex.: https://siga.alertsystem.com.br, via proxy reverso).
   const host = String(request.headers.host || '').trim().toLowerCase()
-  return Boolean(host) && origin.toLowerCase() === `http://${host}`
+  const lower = origin.toLowerCase()
+  return Boolean(host) && (lower === `http://${host}` || lower === `https://${host}`)
 }
 
 function handleOptions(request, response) {
@@ -133,6 +135,17 @@ function isLoopbackRequest(request) {
   const address = String(request.socket.remoteAddress || '').replace(/^::ffff:/, '')
   const proxied = ['cf-connecting-ip', 'cf-ray', 'x-forwarded-for', 'forwarded', 'x-real-ip'].some(header => request.headers[header])
   return !proxied && (address === '127.0.0.1' || address === '::1')
+}
+
+// IP real de quem acessa. Só confia nos cabeçalhos de encaminhamento quando a conexão vem
+// desta máquina (túnel cloudflared ou proxy HTTPS local, ex.: Caddy).
+function clientAddress(request) {
+  const socketAddress = String(request.socket.remoteAddress || '').replace(/^::ffff:/, '')
+  if (socketAddress !== '127.0.0.1' && socketAddress !== '::1') return socketAddress
+  const cloudflare = String(request.headers['cf-connecting-ip'] || '').trim()
+  if (cloudflare) return cloudflare
+  const forwarded = String(request.headers['x-forwarded-for'] || '').split(',').map(value => value.trim()).filter(Boolean)
+  return forwarded.at(-1) || socketAddress
 }
 
 async function setupCentralState(request, response) {
@@ -167,9 +180,7 @@ async function login(request, response) {
   const body = await readJsonBody(request, smallRequestLimitBytes)
   const email = String(body?.email || '').trim().toLowerCase()
   const password = String(body?.password || '')
-  const socketAddress = String(request.socket.remoteAddress || '').replace(/^::ffff:/, '')
-  const tunneled = (socketAddress === '127.0.0.1' || socketAddress === '::1') && request.headers['cf-connecting-ip']
-  const address = tunneled ? String(request.headers['cf-connecting-ip']) : socketAddress
+  const address = clientAddress(request)
   const keys = [`ip:${address}`, `email:${email}`]
   if (keys.some(loginBlocked)) return sendJson(response, 429, { error: 'Muitas tentativas de login. Aguarde 5 minutos e tente novamente.' })
   if (!(await repository.isConfigured())) return sendJson(response, 503, { error: 'O armazenamento central ainda não foi configurado nesta máquina.' })

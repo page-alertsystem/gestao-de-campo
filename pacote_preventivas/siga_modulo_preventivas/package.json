@@ -1,0 +1,19 @@
+{
+  "name": "siga-modulo-preventivas",
+  "private": true,
+  "type": "module",
+  "description": "Agenda de Preventiva - modulo do servidor do SIGA (pacote de integracao e testes)",
+  "scripts": {
+    "harness": "node dev/harness.mjs --port 8787",
+    "test:scheduler": "node --test dev/scheduler.test.mjs"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "esbuild": "^0.25.4",
+    "pg": "8.13.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "typescript": "^5.8.3"
+  }
+}
