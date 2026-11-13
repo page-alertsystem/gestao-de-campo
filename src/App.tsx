@@ -16,7 +16,7 @@ import { ReportsPage, type ReportId } from './ReportsModule'
 import { DocumentsPage, type DocumentSection } from './DocumentsModule'
 import { allowedPagesForProfiles, hasProfile, normalizeProfiles, profileDescriptions, profileNames, profileSummary, type Page } from './access'
 import { accountFromPerson, formatQuantity, hashPassword, loadAppData, normalizeAppData, saveAppData, type AppData, type EquipmentType, type InventoryItem } from './store'
-import { clearServerSession, initializeCentralData, loginCentralServer, onServerData, saveCentralData } from './serverApi'
+import { clearServerSession, getServerBaseUrl, getServerToken, initializeCentralData, loginCentralServer, onServerData, saveCentralData } from './serverApi'
 import { brandAssets, sigaAssets } from './paths'
 import { MobileHome, MobileShell, mobilePages } from './mobile/MobileShell'
 import { appLinks, isPhone } from './appLinks'
@@ -27,6 +27,7 @@ import { recordCompletedAudit } from './auditChecklist'
 import { AprApprovedPage } from './AprModule'
 import { ReturnCallPage } from './ReturnCallModule'
 import { SystemPreventivePage, SystemPreventiveReportsPage } from './SystemPreventiveModule'
+import PreventivesModule from './preventives/PreventivesModule'
 
 type ActionName = 'Início do deslocamento' | 'Encontro' | 'Desencontro' | 'Chegada em casa' | 'Esqueci meu ponto'
 type QuickRecord = { action: ActionName; summary: string; date: string; time: string; formOpenedAt: string; client: string; team: string[]; observation: string; latitude?: number; longitude?: number; accuracy?: number }
@@ -77,6 +78,7 @@ const managementPages: { id: Page; label: string; icon: ComponentType<{ size?: n
   { id: 'gestao-auditoria', label: 'Auditoria', icon: ShieldCheck },
   { id: 'gestao-aprovacao-equipamentos', label: 'Aprovação de equipamentos', icon: PackageCheck },
   { id: 'gestao-levantamento', label: 'Solicitação de levantamento', icon: MapPin },
+  { id: 'preventiveSchedule', label: 'Agenda de Preventiva', icon: CalendarClock },
 ]
 const maintenancePages: { id: Page; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'manutencao-rma', label: 'RMA', icon: Wrench },
@@ -101,7 +103,7 @@ const reportPages: { id: Page; reportId?: ReportId; label: string; icon: Compone
 ]
 const isAttendancePage = (page: Page) => page.startsWith('atendimento-')
 const isOperationPage = (page: Page) => page.startsWith('operacao-')
-const isManagementPage = (page: Page) => page.startsWith('gestao-')
+const isManagementPage = (page: Page) => page.startsWith('gestao-') || page === 'preventiveSchedule'
 const isPersonalPage = (page: Page) => page.startsWith('pessoal-')
 const isStockPage = (page: Page) => page.startsWith('estoque-')
 const isMaintenancePage = (page: Page) => page.startsWith('manutencao-')
@@ -326,6 +328,7 @@ export default function App({ variant = 'desktop' }: { variant?: 'desktop' | 'mo
         {visiblePage === 'gestao-auditoria' && <AuditPage data={data} allowedCategories={canAuditAll ? ['Ferramentas', 'EPIs', 'Escadas'] : ['Escadas']} onStart={setActiveAudit} />}
         {visiblePage === 'gestao-aprovacao-equipamentos' && <EquipmentApprovalsPage data={data} onChange={updateData} />}
         {visiblePage === 'gestao-levantamento' && <SurveyPage data={data} onChange={updateData} />}
+        {visiblePage === 'preventiveSchedule' && <PreventivesModule getToken={getServerToken} baseUrl={getServerBaseUrl()} compact={variant === 'mobile'} />}
         {['pessoal-ferramentas', 'pessoal-epis'].includes(visiblePage) && <StockPage section={visiblePage} data={data} onChange={updateData} />}
         {visiblePage === 'pessoal-aprovacoes' && <StockApprovals data={data} onChange={updateData} />}
         {visiblePage === 'estoque-baixas' && <MaterialWriteOffsPage data={data} onChange={updateData} />}

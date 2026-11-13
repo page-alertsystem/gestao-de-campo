@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRepository } from './db/postgres.mjs'
+import { createPreventivesModule } from './preventives/index.mjs'
 
 const serverDirectory = dirname(fileURLToPath(import.meta.url))
 const projectDirectory = resolve(serverDirectory, '..')
@@ -31,6 +32,17 @@ try {
 } catch (error) {
   console.error(`Não foi possível conectar ao PostgreSQL: ${error.message}`)
   process.exit(1)
+}
+
+// Agenda de Preventiva (/api/v1/preventives). Usa o mesmo pool do PostgreSQL do SIGA.
+// Se o módulo falhar ao iniciar, o SIGA continua no ar e só as rotas do módulo respondem 503.
+const preventives = createPreventivesModule({ pool: repository.pool, sendJson, readJsonBody })
+let preventivesReady = false
+try {
+  await preventives.start()
+  preventivesReady = true
+} catch (error) {
+  console.error(`[preventivas] Não foi possível iniciar o módulo: ${error.message}`)
 }
 
 const allowedOrigins = new Set([
@@ -77,6 +89,10 @@ const server = createServer(async (request, response) => {
     if (url.pathname === '/api/state' && request.method === 'GET') return await getCentralState(response, session)
     if (url.pathname === '/api/state' && request.method === 'PUT') return await updateCentralState(request, response, session)
     if (session?.mustChangePassword && url.pathname.startsWith('/api/')) return sendJson(response, 403, { error: 'Troque a senha provisória antes de continuar.' })
+    if (url.pathname === '/api/v1/preventives' || url.pathname.startsWith('/api/v1/preventives/')) {
+      if (!preventivesReady) return sendJson(response, 503, { error: 'A Agenda de Preventiva está indisponível no momento.', code: 'unavailable' })
+      return await preventives.handle(request, response, session, url)
+    }
     if (url.pathname.startsWith('/api/documents/') && request.method === 'GET') {
       const storageKey = decodeURIComponent(url.pathname.slice('/api/documents/'.length))
       return await downloadDocument(storageKey, response, session)

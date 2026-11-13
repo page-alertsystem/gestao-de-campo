@@ -31,3 +31,7 @@ tools/android-gio-mobile/gen/
 tools/android-gio-mobile/obj/
 tools/android-gio-mobile/bin/
 .siga-dominio
+
+# Pacote temporário do módulo Agenda de Preventiva (não versionar)
+pacote_preventivas/
+pacote_preventivas.zip

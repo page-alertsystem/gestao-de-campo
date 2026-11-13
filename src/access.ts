@@ -18,6 +18,7 @@ export type Page =
   | 'atendimento-preventiva'
   | 'operacao-km' | 'operacao-dia' | 'operacao-ponto' | 'operacao-apr' | 'operacao-retorno'
   | 'gestao-auditoria' | 'gestao-aprovacao-equipamentos' | 'gestao-levantamento'
+  | 'preventiveSchedule'
   | 'pessoal-ferramentas' | 'pessoal-epis' | 'pessoal-aprovacoes'
   | 'estoque-solicitacoes-equipamentos' | 'estoque-baixas' | 'estoque-gerenciamento'
   | 'manutencao-rma' | 'manutencao-danificados'
@@ -59,7 +60,7 @@ const profilePages: Record<ProfileName, Page[]> = {
     'relatorios-baixas', 'relatorios-epis', 'relatorios-ferramentas',
   ],
   'Auditoria': ['gestao-auditoria'],
-  'Service Desk': ['gestao-levantamento', 'relatorios-levantamentos', 'relatorios-preventivas'],
+  'Service Desk': ['gestao-levantamento', 'preventiveSchedule', 'relatorios-levantamentos', 'relatorios-preventivas'],
   'Implantação': ['gestao-levantamento', 'relatorios-levantamentos', 'relatorios-preventivas'],
   'Manutenção': ['manutencao-rma', 'manutencao-danificados', 'relatorios-rma'],
   'TST': ['gestao-aprovacao-equipamentos'],
@@ -67,7 +68,7 @@ const profilePages: Record<ProfileName, Page[]> = {
     'inicio',
     'atendimento-preventiva',
     'operacao-km', 'operacao-dia', 'operacao-ponto', 'operacao-apr', 'operacao-retorno',
-    'gestao-auditoria', 'gestao-aprovacao-equipamentos', 'gestao-levantamento',
+    'gestao-auditoria', 'gestao-aprovacao-equipamentos', 'gestao-levantamento', 'preventiveSchedule',
     'pessoal-ferramentas', 'pessoal-epis', 'pessoal-aprovacoes',
     'estoque-solicitacoes-equipamentos', 'estoque-baixas', 'estoque-gerenciamento',
     'manutencao-rma', 'manutencao-danificados',

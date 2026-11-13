@@ -10,6 +10,7 @@ type SetupResponse = { token: string; expiresAt: string; revision: number; error
 type HealthResponse = { centralStorageConfigured?: boolean; movideskConfigured?: boolean }
 
 let apiBasePromise: Promise<string> | null = null
+let resolvedApiBase = ''
 let currentRevision = 0
 let saveQueue: Promise<void> = Promise.resolve()
 let serverDataListener: ((data: AppData) => void) | null = null
@@ -43,7 +44,7 @@ async function discoverApiBase() {
 }
 
 export function apiBaseUrl() {
-  apiBasePromise ??= discoverApiBase()
+  apiBasePromise ??= discoverApiBase().then(base => { resolvedApiBase = base; return base })
   return apiBasePromise
 }
 
@@ -73,6 +74,16 @@ function validToken() {
     return ''
   }
   return token
+}
+
+/** Token da sessão atual para módulos que chamam a API diretamente (ex.: Agenda de Preventiva). Vazio se expirou. */
+export function getServerToken() {
+  return validToken()
+}
+
+/** Endereço base da API já descoberto por apiBaseUrl() (vazio antes do primeiro acesso ao servidor). */
+export function getServerBaseUrl() {
+  return resolvedApiBase
 }
 
 async function responseMessage(response: Response) {

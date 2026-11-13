@@ -15,6 +15,7 @@ export const mobilePages: Page[] = [
   'atendimento-preventiva',
   'operacao-dia', 'operacao-km', 'operacao-ponto', 'operacao-apr', 'operacao-retorno',
   'gestao-auditoria',
+  'preventiveSchedule',
   'manutencao-rma',
 ]
 
@@ -135,6 +136,7 @@ export function MobileHome({ data, profiles, allowedPages, online, onAction, onN
     { id: 'atendimento-preventiva', label: 'Preventiva sistêmica', detail: 'Servidor, workstation, storage', icon: Server, run: () => onNavigate('atendimento-preventiva') },
     { id: 'gestao-auditoria', label: 'Auditoria', detail: 'Ferramentas, EPIs e escadas', icon: ShieldCheck, run: () => onNavigate('gestao-auditoria') },
     { id: 'manutencao-rma', label: 'RMA', detail: 'Equipamento para manutenção', icon: Wrench, run: () => onNavigate('manutencao-rma') },
+    { id: 'preventiveSchedule', label: 'Agenda de Preventiva', detail: 'Calendário, cronograma e reagendamento', icon: CalendarClock, run: () => onNavigate('preventiveSchedule') },
   ]
   const visibleShortcuts = shortcuts.filter(item => allowedPages.has(item.id))
   const showAndroid = !insideAndroidApp() && /android/i.test(navigator.userAgent) && apkUrl
